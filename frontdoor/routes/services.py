@@ -22,7 +22,7 @@ def _collect_services() -> dict:
     # 2. Build service list with live-status probing.
     services: list[dict] = []
     for svc in parsed:
-        is_up = tcp_probe("localhost", svc["internal_port"])
+        is_up = tcp_probe("127.0.0.1", svc["internal_port"])
         services.append(
             {
                 "name": svc["name"],

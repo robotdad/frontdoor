@@ -243,3 +243,25 @@ class TestScanProcesses:
         assert entry["name"] == "java"
         assert entry["port"] == 9200
         assert entry["pid"] == 5000
+
+    def test_self_exclusion_uses_settings_port(self):
+        """scan_processes excludes settings.port, so changing it excludes the new port."""
+        ss_output = (
+            "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+            'tcp   LISTEN 0      128    0.0.0.0:9999      0.0.0.0:*         users:(("frontdoor",pid=7777,fd=5))\n'
+            'tcp   LISTEN 0      128    0.0.0.0:9200      0.0.0.0:*         users:(("java",pid=5000,fd=10))\n'
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ss_output
+
+        with (
+            patch("frontdoor.discovery.subprocess.run", return_value=mock_result),
+            patch("frontdoor.discovery.settings") as mock_settings,
+        ):
+            mock_settings.port = 9999
+            results = scan_processes(skip_ports=set())
+
+        ports = {r["port"] for r in results}
+        assert 9999 not in ports
+        assert 9200 in ports

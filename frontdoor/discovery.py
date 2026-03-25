@@ -7,6 +7,7 @@ import socket
 import subprocess
 from pathlib import Path
 
+from frontdoor.config import settings
 from frontdoor.ports import RESERVED_PORTS
 
 
@@ -62,7 +63,7 @@ def _parse_site_block(text: str, name: str) -> dict | None:
     internal_port = int(port_match.group(1))
 
     # Skip frontdoor's own port.
-    if internal_port == 8420:
+    if internal_port == settings.port:
         return None
 
     external_url = f"https://{site_addr}"
@@ -183,7 +184,7 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
     if result.returncode != 0:
         return []
 
-    exclude: set[int] = RESERVED_PORTS | skip_ports | {8420}
+    exclude: set[int] = RESERVED_PORTS | skip_ports | {settings.port}
 
     services: list[dict] = []
     for line in result.stdout.splitlines():
