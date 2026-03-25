@@ -20,6 +20,10 @@ class Settings:
     secure_cookies: bool = field(
         default_factory=lambda: os.environ.get("FRONTDOOR_SECURE_COOKIES") == "true"
     )
+    session_timeout: int = 2592000
+    cookie_domain: str = field(
+        default_factory=lambda: os.environ.get("FRONTDOOR_COOKIE_DOMAIN", "")
+    )
 
 
 settings = Settings()
