@@ -1,0 +1,47 @@
+import os
+from pathlib import Path
+
+
+def test_defaults():
+    """Verify all default values including secret_key length>=32."""
+    # Ensure env vars are not set so we get true defaults
+    os.environ.pop("FRONTDOOR_SECRET_KEY", None)
+    os.environ.pop("FRONTDOOR_SECURE_COOKIES", None)
+
+    from frontdoor.config import Settings
+
+    s = Settings()
+
+    assert s.port == 8420
+    assert s.caddy_main_config == Path("/etc/caddy/Caddyfile")
+    assert s.caddy_conf_d == Path("/etc/caddy/conf.d")
+    assert s.manifest_dir == Path("/opt/frontdoor/manifests")
+    assert isinstance(s.secret_key, str)
+    assert len(s.secret_key) >= 32
+    assert s.secure_cookies is False
+
+
+def test_secret_key_from_env(monkeypatch):
+    """Verify FRONTDOOR_SECRET_KEY env override."""
+    monkeypatch.setenv("FRONTDOOR_SECRET_KEY", "my-custom-secret-key-for-testing-1234")
+
+    from frontdoor import config as config_module
+    import importlib
+
+    importlib.reload(config_module)
+
+    s = config_module.Settings()
+    assert s.secret_key == "my-custom-secret-key-for-testing-1234"
+
+
+def test_secure_cookies_from_env(monkeypatch):
+    """Verify FRONTDOOR_SECURE_COOKIES='true' override."""
+    monkeypatch.setenv("FRONTDOOR_SECURE_COOKIES", "true")
+
+    from frontdoor import config as config_module
+    import importlib
+
+    importlib.reload(config_module)
+
+    s = config_module.Settings()
+    assert s.secure_cookies is True
