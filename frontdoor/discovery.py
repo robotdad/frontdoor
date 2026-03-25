@@ -1,10 +1,10 @@
 """Service discovery by parsing Caddy configuration files."""
 
-import json  # noqa: F401
+import json
 import logging
 import re
-import socket  # noqa: F401
-import subprocess  # noqa: F401
+import socket
+import subprocess
 from pathlib import Path
 
 from .ports import RESERVED_PORTS
