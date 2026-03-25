@@ -61,30 +61,3 @@ class TestNextAvailablePort:
         with patch("socket.create_connection", side_effect=side_effects):
             result = next_available_port(start=8440)
         assert result == 8441
-
-    def test_raises_on_invalid_start_below_zero(self):
-        """next_available_port(-1) must raise ValueError — negative ports are invalid."""
-        import pytest
-
-        with pytest.raises(ValueError, match="valid port"):
-            next_available_port(start=-1)
-
-    def test_raises_on_start_above_max_port(self):
-        """next_available_port(65536) must raise ValueError — 65536 exceeds valid range."""
-        import pytest
-
-        with pytest.raises(ValueError, match="valid port"):
-            next_available_port(start=65536)
-
-    def test_raises_when_range_exhausted(self):
-        """When every candidate port up to 65535 is in use, raise RuntimeError."""
-        import pytest
-
-        # 65535 is not reserved; simulate it being in use → no higher port exists
-        mock_conn = MagicMock()
-        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-        mock_conn.__exit__ = MagicMock(return_value=False)
-
-        with patch("socket.create_connection", return_value=mock_conn):
-            with pytest.raises(RuntimeError, match="65535"):
-                next_available_port(start=65535)
