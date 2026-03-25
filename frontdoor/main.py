@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from frontdoor.routes import services
+from frontdoor.routes import auth, services
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,9 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         content={"error": "Internal server error", "code": 500},
     )
 
+
+# Include the auth router (provides GET /api/auth/validate and POST /api/auth/logout).
+app.include_router(auth.router)
 
 # Include the services router (provides GET /api/services).
 app.include_router(services.router)

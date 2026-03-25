@@ -1,8 +1,12 @@
 import asyncio
 import time
+
 import pytest
-from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
+from starlette.testclient import TestClient
+from unittest.mock import MagicMock, patch, patch as _patch
+
+from frontdoor.config import Settings
 
 SECRET = "test-secret-key-for-unit-tests"
 
@@ -113,3 +117,73 @@ class TestRequireAuth:
         with patch("frontdoor.auth.settings", mock_settings):
             result = asyncio.get_event_loop().run_until_complete(require_auth(request))
         assert result == "alice"
+
+
+# ---------------------------------------------------------------------------
+# Route tests – require the app to have the auth router registered
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def auth_client():
+    """TestClient that does NOT follow redirects (so we can inspect 3xx responses)."""
+    from frontdoor.main import app
+
+    return TestClient(app, base_url="https://testserver", follow_redirects=False)
+
+
+@pytest.fixture
+def valid_token():
+    """A freshly-minted, valid session token for 'testuser'."""
+    from frontdoor.auth import create_session_token
+
+    return create_session_token("testuser", SECRET)
+
+
+@pytest.fixture
+def patched_settings():
+    """Settings with the known SECRET and a long timeout."""
+    s = Settings()
+    s.secret_key = SECRET
+    s.session_timeout = 3600
+    s.cookie_domain = ""
+    return s
+
+
+class TestValidateRoute:
+    def test_no_cookie_returns_401(self, auth_client):
+        response = auth_client.get("/api/auth/validate")
+        assert response.status_code == 401
+
+    def test_invalid_cookie_returns_401(self, auth_client):
+        response = auth_client.get(
+            "/api/auth/validate", cookies={"frontdoor_session": "garbage-token"}
+        )
+        assert response.status_code == 401
+
+    def test_valid_cookie_returns_200_with_header(
+        self, auth_client, valid_token, patched_settings
+    ):
+        with _patch("frontdoor.auth.settings", patched_settings):
+            response = auth_client.get(
+                "/api/auth/validate",
+                cookies={"frontdoor_session": valid_token},
+            )
+        assert response.status_code == 200
+        assert response.headers.get("x-authenticated-user") == "testuser"
+
+
+class TestLogoutRoute:
+    def test_logout_redirects_303_to_login(self, auth_client):
+        response = auth_client.post("/api/auth/logout")
+        assert response.status_code == 303
+        assert response.headers.get("location") in (
+            "/login",
+            "https://testserver/login",
+        )
+
+    def test_logout_clears_cookie(self, auth_client):
+        response = auth_client.post("/api/auth/logout")
+        set_cookie = response.headers.get("set-cookie", "")
+        assert "frontdoor_session" in set_cookie
+        assert "max-age=0" in set_cookie.lower()
