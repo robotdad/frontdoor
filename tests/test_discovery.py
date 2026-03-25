@@ -1,6 +1,9 @@
 """Tests for frontdoor/discovery.py — parse_caddy_configs()."""
 
-from frontdoor.discovery import parse_caddy_configs
+import socket
+from unittest.mock import patch
+
+from frontdoor.discovery import parse_caddy_configs, tcp_probe
 
 
 class TestParseCaddyConfigs:
@@ -70,3 +73,25 @@ class TestParseCaddyConfigs:
             conf_d=tmp_path / "nonexistent",
         )
         assert services == []
+
+
+class TestTcpProbe:
+    def test_success(self):
+        """tcp_probe returns True when connection succeeds."""
+        with patch("socket.create_connection") as mock_conn:
+            mock_conn.return_value.__enter__ = lambda s: s
+            mock_conn.return_value.__exit__ = lambda s, *a: False
+            result = tcp_probe("localhost", 8080)
+        assert result is True
+
+    def test_connection_refused(self):
+        """tcp_probe returns False when ConnectionRefusedError is raised."""
+        with patch("socket.create_connection", side_effect=ConnectionRefusedError):
+            result = tcp_probe("localhost", 9999)
+        assert result is False
+
+    def test_timeout(self):
+        """tcp_probe returns False when socket.timeout is raised."""
+        with patch("socket.create_connection", side_effect=socket.timeout):
+            result = tcp_probe("localhost", 8080, timeout=0.1)
+        assert result is False

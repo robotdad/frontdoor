@@ -2,10 +2,24 @@
 
 import logging
 import re
+import socket
 from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
+
+
+def tcp_probe(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Check whether a TCP connection to *host*:*port* can be established.
+
+    Returns ``True`` on success, ``False`` on any connection failure.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+        return True
+    except Exception:
+        return False
 
 
 def _name_from_filename(filename: str) -> str:
