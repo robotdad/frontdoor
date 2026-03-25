@@ -48,8 +48,8 @@ def _parse_site_block(text: str, name: str) -> dict | None:
         return None
     internal_port = int(port_match.group(1))
 
-    # Skip reserved ports (includes frontdoor's own port 8420).
-    if internal_port in RESERVED_PORTS:
+    # Skip frontdoor's own port.
+    if internal_port == 8420:
         return None
 
     external_url = f"https://{site_addr}"
