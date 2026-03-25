@@ -146,7 +146,7 @@ def overlay_manifests(services: list[dict], manifest_dir: Path) -> list[dict]:
             for key in _MERGE_KEYS:
                 if key in data:
                     merged[key] = data[key]
-        except Exception:
+        except (FileNotFoundError, json.JSONDecodeError):
             pass
         enriched.append(merged)
 
