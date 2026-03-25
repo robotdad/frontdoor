@@ -4,7 +4,10 @@ import json
 import logging
 import re
 import socket
+import subprocess
 from pathlib import Path
+
+from frontdoor.ports import RESERVED_PORTS
 
 
 logger = logging.getLogger(__name__)
@@ -151,3 +154,57 @@ def overlay_manifests(services: list[dict], manifest_dir: Path) -> list[dict]:
         enriched.append(merged)
 
     return enriched
+
+
+def scan_processes(skip_ports: set[int]) -> list[dict]:
+    """Detect unregistered services by scanning listening TCP ports via ``ss -tlnp``.
+
+    Runs ``ss -tlnp`` and parses the output to identify processes listening on
+    ports that are not registered in Caddy configuration.
+
+    Args:
+        skip_ports: Set of ports already known to Caddy (should be excluded).
+
+    Returns:
+        A list of dicts with ``name``, ``port``, and ``pid`` for each
+        discovered unregistered service.  Returns an empty list on any
+        subprocess failure.
+    """
+    try:
+        result = subprocess.run(
+            ["ss", "-tlnp"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return []
+
+    exclude: set[int] = RESERVED_PORTS | skip_ports | {8420}
+
+    services: list[dict] = []
+    for line in result.stdout.splitlines():
+        if "LISTEN" not in line:
+            continue
+
+        port_match = re.search(r":(\d+)\s", line)
+        if not port_match:
+            continue
+        port = int(port_match.group(1))
+
+        if port in exclude:
+            continue
+
+        proc_match = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+        if not proc_match:
+            continue
+
+        services.append(
+            {
+                "name": proc_match.group(1),
+                "port": port,
+                "pid": int(proc_match.group(2)),
+            }
+        )
+
+    return services

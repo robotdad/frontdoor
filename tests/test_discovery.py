@@ -2,9 +2,14 @@
 
 import json
 import socket
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from frontdoor.discovery import overlay_manifests, parse_caddy_configs, tcp_probe
+from frontdoor.discovery import (
+    overlay_manifests,
+    parse_caddy_configs,
+    scan_processes,
+    tcp_probe,
+)
 
 
 class TestParseCaddyConfigs:
@@ -181,3 +186,60 @@ class TestOverlayManifests:
 
         assert len(result) == 1
         assert result[0]["name"] == "Filebrowser"
+
+
+class TestScanProcesses:
+    SS_OUTPUT = (
+        "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+        'tcp   LISTEN 0      128    0.0.0.0:8441      0.0.0.0:*         users:(("uvicorn",pid=1234,fd=6))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:8445      0.0.0.0:*         users:(("python3",pid=2345,fd=7))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:8420      0.0.0.0:*         users:(("uvicorn",pid=3456,fd=8))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:3000      0.0.0.0:*         users:(("node",pid=4567,fd=9))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:9200      0.0.0.0:*         users:(("java",pid=5000,fd=10))\n'
+    )
+
+    def _mock_run(self):
+        """Return a MagicMock simulating a successful subprocess.run result."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = self.SS_OUTPUT
+        return mock_result
+
+    def test_parses_ss_output(self):
+        """scan_processes returns an entry for port 9200 (java) when not excluded."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports=set())
+        ports = {r["port"] for r in results}
+        assert 9200 in ports
+
+    def test_filters_reserved_ports(self):
+        """scan_processes excludes ports in RESERVED_PORTS (e.g. 3000)."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports=set())
+        ports = {r["port"] for r in results}
+        assert 3000 not in ports
+
+    def test_filters_caddy_ports(self):
+        """scan_processes excludes ports passed in skip_ports (e.g. Caddy-proxied ports)."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports={8441, 8445})
+        ports = {r["port"] for r in results}
+        assert 8441 not in ports
+        assert 8445 not in ports
+
+    def test_filters_frontdoor_port(self):
+        """scan_processes always excludes port 8420 (frontdoor itself)."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports=set())
+        ports = {r["port"] for r in results}
+        assert 8420 not in ports
+
+    def test_extracts_process_name_and_pid(self):
+        """scan_processes returns correct name, port, and pid for each discovered process."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports={8441, 8445})
+        assert len(results) == 1
+        entry = results[0]
+        assert entry["name"] == "java"
+        assert entry["port"] == 9200
+        assert entry["pid"] == 5000
