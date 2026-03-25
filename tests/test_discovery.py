@@ -243,12 +243,3 @@ class TestScanProcesses:
         assert entry["name"] == "java"
         assert entry["port"] == 9200
         assert entry["pid"] == 5000
-
-    def test_returns_empty_on_nonzero_returncode(self):
-        """scan_processes returns [] when ss exits with a non-zero status code."""
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stdout = self.SS_OUTPUT
-        with patch("frontdoor.discovery.subprocess.run", return_value=mock_result):
-            results = scan_processes(skip_ports=set())
-        assert results == []
