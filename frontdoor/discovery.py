@@ -1,8 +1,13 @@
 """Service discovery by parsing Caddy configuration files."""
 
+import json  # noqa: F401
 import logging
 import re
+import socket  # noqa: F401
+import subprocess  # noqa: F401
 from pathlib import Path
+
+from .ports import RESERVED_PORTS
 
 
 logger = logging.getLogger(__name__)
@@ -43,8 +48,8 @@ def _parse_site_block(text: str, name: str) -> dict | None:
         return None
     internal_port = int(port_match.group(1))
 
-    # Skip the frontdoor service itself.
-    if internal_port == 8420:
+    # Skip reserved ports (includes frontdoor's own port 8420).
+    if internal_port in RESERVED_PORTS:
         return None
 
     external_url = f"https://{site_addr}"
