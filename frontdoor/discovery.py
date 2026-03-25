@@ -180,6 +180,9 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
     except Exception:
         return []
 
+    if result.returncode != 0:
+        return []
+
     exclude: set[int] = RESERVED_PORTS | skip_ports | {8420}
 
     services: list[dict] = []
