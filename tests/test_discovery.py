@@ -1,6 +1,5 @@
 """Tests for frontdoor/discovery.py — parse_caddy_configs()."""
 
-
 from frontdoor.discovery import parse_caddy_configs
 
 
