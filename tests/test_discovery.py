@@ -1,9 +1,10 @@
 """Tests for frontdoor/discovery.py — parse_caddy_configs()."""
 
+import json
 import socket
 from unittest.mock import patch
 
-from frontdoor.discovery import parse_caddy_configs, tcp_probe
+from frontdoor.discovery import overlay_manifests, parse_caddy_configs, tcp_probe
 
 
 class TestParseCaddyConfigs:
@@ -95,3 +96,88 @@ class TestTcpProbe:
         with patch("socket.create_connection", side_effect=socket.timeout):
             result = tcp_probe("localhost", 8080, timeout=0.1)
         assert result is False
+
+
+class TestOverlayManifests:
+    def test_manifest_found(self, tmp_path):
+        """overlay_manifests enriches a service when a matching manifest file exists."""
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        manifest_data = {
+            "name": "File Browser",
+            "description": "A web-based file manager",
+            "icon": "folder",
+        }
+        (manifest_dir / "filebrowser.json").write_text(json.dumps(manifest_data))
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, manifest_dir)
+
+        assert len(result) == 1
+        svc = result[0]
+        # Manifest fields merged in
+        assert svc["name"] == "File Browser"
+        assert svc["description"] == "A web-based file manager"
+        assert svc["icon"] == "folder"
+        # Original fields preserved
+        assert svc["external_url"] == "https://files.example.com"
+        assert svc["internal_port"] == 8445
+
+    def test_no_manifest_keeps_original(self, tmp_path):
+        """overlay_manifests leaves services unchanged when no manifest file exists."""
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, manifest_dir)
+
+        assert len(result) == 1
+        svc = result[0]
+        assert svc["name"] == "Filebrowser"
+        assert "description" not in svc
+
+    def test_malformed_json_skipped(self, tmp_path):
+        """overlay_manifests silently skips services whose manifest contains invalid JSON."""
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        (manifest_dir / "filebrowser.json").write_text("{not valid json}")
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, manifest_dir)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "Filebrowser"
+
+    def test_missing_manifest_dir_no_error(self, tmp_path):
+        """overlay_manifests does not raise when the manifest directory does not exist."""
+        nonexistent_dir = tmp_path / "does_not_exist"
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, nonexistent_dir)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "Filebrowser"

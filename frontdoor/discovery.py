@@ -1,5 +1,6 @@
 """Service discovery by parsing Caddy configuration files."""
 
+import json
 import logging
 import re
 import socket
@@ -116,3 +117,37 @@ def parse_caddy_configs(main_config: Path, conf_d: Path) -> list[dict]:
             logger.debug("Failed to parse Caddy config: %s", caddy_file)
 
     return services
+
+
+def overlay_manifests(services: list[dict], manifest_dir: Path) -> list[dict]:
+    """Enrich service dicts with metadata from per-service JSON manifest files.
+
+    For each service, computes a slug from its ``name`` field and attempts to
+    load ``manifest_dir/{slug}.json``.  When the file exists and contains valid
+    JSON, the ``name``, ``description``, and ``icon`` keys from the manifest
+    are merged (shallow copy) into the service dict.
+
+    Missing directories, missing files, and malformed JSON are all handled
+    silently.  Returns a new list of enriched dicts (original dicts are not
+    mutated).
+    """
+    _MERGE_KEYS = ("name", "description", "icon")
+
+    if not manifest_dir.exists():
+        return [dict(svc) for svc in services]
+
+    enriched: list[dict] = []
+    for svc in services:
+        slug = svc["name"].lower().replace(" ", "-")
+        manifest_path = manifest_dir / f"{slug}.json"
+        merged = dict(svc)
+        try:
+            data = json.loads(manifest_path.read_text())
+            for key in _MERGE_KEYS:
+                if key in data:
+                    merged[key] = data[key]
+        except Exception:
+            pass
+        enriched.append(merged)
+
+    return enriched
