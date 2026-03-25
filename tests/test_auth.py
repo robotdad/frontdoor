@@ -257,3 +257,54 @@ class TestLoginRoute:
             )
         set_cookie = response.headers.get("set-cookie", "").lower()
         assert "samesite=lax" in set_cookie
+
+    # ------------------------------------------------------------------
+    # Security regression tests: open redirect and URL encoding
+    # ------------------------------------------------------------------
+
+    def test_open_redirect_absolute_url_rejected(self, auth_client):
+        """Successful login with an absolute external next must not redirect off-site."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login?next=https://evil.example",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location == "/"
+
+    def test_open_redirect_protocol_relative_rejected(self, auth_client):
+        """Successful login with a protocol-relative next must not redirect off-site."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login?next=//evil.example",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location == "/"
+
+    def test_failed_login_next_is_url_encoded(self, auth_client):
+        """Failed login redirect must URL-encode next so embedded chars don't corrupt the query string."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login?next=/path%3Fx%3D1%26admin%3Dtrue",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        # If next is not encoded, "admin=true" appears as a standalone query param
+        assert "admin=true" not in location
+        assert "error=1" in location
+        assert "next=" in location
+
+    def test_failed_login_has_no_session_cookie(self, auth_client):
+        """Failed login must not issue a session cookie."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        set_cookie = response.headers.get("set-cookie", "")
+        assert "frontdoor_session" not in set_cookie
