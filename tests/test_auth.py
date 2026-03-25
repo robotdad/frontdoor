@@ -198,7 +198,7 @@ class TestLoginRoute:
             )
         assert response.status_code == 303
         location = response.headers.get("location", "")
-        assert location in ("/", "https://testserver/")
+        assert location == "/"
         assert "frontdoor_session" in response.headers.get("set-cookie", "")
 
     def test_failed_login_redirects_with_error(self, auth_client):
@@ -209,7 +209,7 @@ class TestLoginRoute:
             )
         assert response.status_code == 303
         location = response.headers.get("location", "")
-        assert "error=1" in location
+        assert location.startswith("/login?error=1")
 
     def test_next_param_redirects(self, auth_client):
         with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
@@ -219,7 +219,7 @@ class TestLoginRoute:
             )
         assert response.status_code == 303
         location = response.headers.get("location", "")
-        assert "/some/deep/page" in location
+        assert location == "/some/deep/page"
 
     def test_failed_login_preserves_next(self, auth_client):
         with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):

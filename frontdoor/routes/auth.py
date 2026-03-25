@@ -1,6 +1,6 @@
 """Auth endpoints: Caddy forward_auth validate and logout."""
 
-from fastapi import APIRouter, Depends, Form, Query
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import RedirectResponse, Response
 
 from frontdoor.auth import authenticate_pam, create_session_token, require_auth
@@ -20,6 +20,7 @@ async def validate(username: str = Depends(require_auth)) -> Response:
 
 @router.post("/api/auth/login")
 async def login(
+    request: Request,
     username: str = Form(...),
     password: str = Form(...),
     next_url: str = Query(default="/", alias="next"),
