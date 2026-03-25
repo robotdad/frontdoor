@@ -187,3 +187,73 @@ class TestLogoutRoute:
         set_cookie = response.headers.get("set-cookie", "")
         assert "frontdoor_session" in set_cookie
         assert "max-age=0" in set_cookie.lower()
+
+
+class TestLoginRoute:
+    def test_successful_login_sets_cookie_and_redirects(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location in ("/", "https://testserver/")
+        assert "frontdoor_session" in response.headers.get("set-cookie", "")
+
+    def test_failed_login_redirects_with_error(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert "error=1" in location
+
+    def test_next_param_redirects(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login?next=/some/deep/page",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert "/some/deep/page" in location
+
+    def test_failed_login_preserves_next(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login?next=/some/deep/page",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert "error=1" in location
+        assert "next=" in location
+
+    def test_cookie_name_is_frontdoor_session(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert "frontdoor_session" in response.headers.get("set-cookie", "")
+
+    def test_cookie_is_httponly(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "httponly" in set_cookie
+
+    def test_cookie_samesite_lax(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "samesite=lax" in set_cookie
