@@ -25,7 +25,7 @@ def test_secret_key_from_env(monkeypatch):
     """Verify FRONTDOOR_SECRET_KEY env override."""
     monkeypatch.setenv("FRONTDOOR_SECRET_KEY", "my-custom-secret-key-for-testing-1234")
 
-    from frontdoor import config as config_module
+    import frontdoor.config as config_module
     import importlib
 
     importlib.reload(config_module)
@@ -38,7 +38,7 @@ def test_secure_cookies_from_env(monkeypatch):
     """Verify FRONTDOOR_SECURE_COOKIES='true' override."""
     monkeypatch.setenv("FRONTDOOR_SECURE_COOKIES", "true")
 
-    from frontdoor import config as config_module
+    import frontdoor.config as config_module
     import importlib
 
     importlib.reload(config_module)
