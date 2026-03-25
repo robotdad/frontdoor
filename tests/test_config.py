@@ -1,12 +1,11 @@
-import os
 from pathlib import Path
 
 
-def test_defaults():
+def test_defaults(monkeypatch):
     """Verify all default values including secret_key length>=32."""
     # Ensure env vars are not set so we get true defaults
-    os.environ.pop("FRONTDOOR_SECRET_KEY", None)
-    os.environ.pop("FRONTDOOR_SECURE_COOKIES", None)
+    monkeypatch.delenv("FRONTDOOR_SECRET_KEY", raising=False)
+    monkeypatch.delenv("FRONTDOOR_SECURE_COOKIES", raising=False)
 
     from frontdoor.config import Settings
 
