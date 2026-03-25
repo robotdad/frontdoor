@@ -10,7 +10,6 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "python-pam",
-    "six",
     "python-multipart",
     "itsdangerous",
 ]
