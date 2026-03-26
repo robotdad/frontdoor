@@ -7,6 +7,7 @@
 </head>
 <body>
     <h1>Sign In</h1>
+    <div id="error-msg" style="display:none;color:red">Invalid username or password.</div>
     <form method="POST" action="/api/auth/login">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" required>
@@ -14,5 +15,20 @@
         <input type="password" id="password" name="password" required>
         <button type="submit">Sign In</button>
     </form>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var params = new URLSearchParams(window.location.search);
+
+            // Forward the deep-link destination through the login POST.
+            var next = params.get('next') || '/';
+            document.querySelector('form').action =
+                '/api/auth/login?next=' + encodeURIComponent(next);
+
+            // Show inline error when the backend redirects back with ?error=1.
+            if (params.get('error') === '1') {
+                document.getElementById('error-msg').style.display = '';
+            }
+        });
+    </script>
 </body>
 </html>

@@ -318,6 +318,20 @@ class TestLoginPageRoute:
         assert "text/html" in response.headers.get("content-type", "")
         assert "Sign In" in response.text
 
+    def test_next_param_preserved_through_login_page(self, auth_client):
+        """Deep-link: login page must forward ?next to the form action.
+
+        The server returns a static HTML file; the next value is wired into the
+        form action client-side by a script block.  We therefore verify that the
+        HTML contains the JavaScript mechanism that performs the forwarding, not
+        the runtime-resolved value (which is only available in the browser).
+        """
+        response = auth_client.get("/login?next=%2Fsome%2Fpath")
+        assert response.status_code == 200
+        # The JS must read ?next from the URL and patch the form action.
+        assert "URLSearchParams" in response.text
+        assert "/api/auth/login?next=" in response.text
+
 
 class TestServicesRequiresAuth:
     def test_services_returns_401_without_cookie(self, auth_client):
