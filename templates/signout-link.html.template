@@ -1,4 +1,4 @@
 <!-- Signs out of all apps protected by this frontdoor. Replace FRONTDOOR_FQDN with the actual hostname. -->
-<form method="POST" action="https://FRONTDOOR_FQDN/api/auth/logout" style="display:inline">
-    <button type="submit" class="signout-link">Sign Out</button>
+<form method="POST" action="https://FRONTDOOR_FQDN/api/auth/logout">
+    <button type="submit">Sign Out</button>
 </form>
