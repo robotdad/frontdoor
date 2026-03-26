@@ -31,6 +31,6 @@ app.include_router(auth.router)
 app.include_router(services.router)
 
 # Conditionally mount the static file directory if it exists.
-_static_dir = Path(__file__).parent.parent / "static"
+_static_dir = Path(__file__).parent / "static"
 if _static_dir.is_dir():
     app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
