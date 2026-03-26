@@ -23,14 +23,63 @@ sudo deploy/install.sh
 4. **Short hostname redirect** — adds a redirect so `http://<short-hostname>/` resolves to the HTTPS Tailscale address.
 5. **Creates `manifests/`** — initialises `/opt/frontdoor/manifests/` for per-app JSON metadata files that apps can drop in to customize their dashboard entry.
 
-## Amplifier bundle
+## Using with Amplifier
 
-frontdoor ships as an **Amplifier bundle** (`bundle.md`). The bundle packages:
+The `frontdoor` bundle gives Amplifier the knowledge to inventory your host, provision new web apps, and wire them into the shared Caddy + Tailscale infrastructure — following the port allocation, auth, and service discovery conventions used across all frontdoor-managed hosts.
 
-- **Skills** for host inventory (`host-infra-discovery`) and app provisioning (`web-app-setup`) — use these in an Amplifier session to set up new apps on this host.
-- **Templates** for Caddy configs, systemd units, install scripts, app manifests, and sign-out links.
+### Prerequisites
 
-To use the skills in an Amplifier session, point your bundle config at this directory.
+- [Amplifier](https://github.com/microsoft/amplifier) installed:
+  ```bash
+  uv tool install git+https://github.com/microsoft/amplifier
+  amplifier init   # configure your AI provider if you haven't yet
+  ```
+- Target host running **Tailscale** with **Caddy** installed
+
+### Install the Bundle
+
+```bash
+amplifier bundle add git+https://github.com/robotdad/frontdoor@main
+amplifier bundle use frontdoor --local   # activate for your current session
+```
+
+### Register the Skills
+
+The skills ship in this repo's `skills/` directory and are discovered separately from the bundle. Register them once:
+
+```bash
+# In an Amplifier session:
+load_skill(source="git+https://github.com/robotdad/frontdoor")
+```
+
+Once registered, `host-infra-discovery` and `web-app-setup` are available automatically whenever Amplifier thinks they're relevant — or you can invoke them explicitly.
+
+### Typical Workflow
+
+**Step 1 — Inventory the host before touching it:**
+```
+"Run host-infra-discovery on this host and give me the summary table"
+```
+
+**Step 2 — Set up a new web app:**
+```
+"Using that summary, help me set up a new app called myapp"
+```
+
+Amplifier will load the relevant skill, run the shell commands to detect available ports and existing infrastructure, generate deployment files in your project's `deploy/` directory from the templates, and leave activation to you — run `deploy/install.sh` when you're ready to go live.
+
+### One-Shot (No Installation)
+
+```bash
+amplifier run --bundle git+https://github.com/robotdad/frontdoor@main \
+  "What web apps are currently running on this host?"
+```
+
+### Keep Up to Date
+
+```bash
+amplifier bundle refresh frontdoor
+```
 
 ## Status commands
 
