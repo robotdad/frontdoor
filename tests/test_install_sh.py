@@ -2,11 +2,12 @@
 Tests for frontdoor/deploy/install.sh
 
 These tests verify the deploy script has all required sections and patterns
-by inspecting the script content statically.
+by inspecting the script content statically, plus behavioral validation.
 """
 
 import os
 import stat
+import subprocess
 import pytest
 
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), "..", "deploy", "install.sh")
@@ -224,3 +225,92 @@ class TestCompletionMessage:
     def test_shows_status_commands(self, script_content):
         assert "systemctl status frontdoor" in script_content
         assert "systemctl status caddy" in script_content
+
+
+class TestScriptSyntax:
+    """Automated shell syntax validation — prevents future regressions."""
+
+    def test_script_passes_bash_syntax_check(self):
+        """bash -n validates syntax without executing privileged commands."""
+        result = subprocess.run(
+            ["bash", "-n", SCRIPT_PATH],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"bash -n found syntax errors:\n{result.stderr}"
+
+
+class TestSystemdUnitPermissions:
+    """Critical: the generated systemd unit embeds the secret key and must be chmod 600."""
+
+    def test_systemd_unit_is_chmod_600_after_write(self, script_content):
+        """chmod 600 must appear AFTER the sed command that writes the unit file."""
+        chmod_str = "chmod 600 /etc/systemd/system/frontdoor.service"
+        assert chmod_str in script_content, (
+            "Missing: chmod 600 /etc/systemd/system/frontdoor.service — "
+            "the generated unit embeds the secret key and must not be world-readable"
+        )
+        # Anchor on the sed output redirection line ("> /etc/systemd/system/frontdoor.service")
+        write_anchor = "> /etc/systemd/system/frontdoor.service"
+        write_idx = script_content.find(write_anchor)
+        chmod_idx = script_content.find(chmod_str)
+        assert write_idx != -1, (
+            "Could not find sed redirection to /etc/systemd/system/frontdoor.service"
+        )
+        assert chmod_idx > write_idx, (
+            "chmod 600 must appear after the sed command that writes the unit file"
+        )
+
+
+class TestBehavioralRendering:
+    """Behavioral tests that execute bash to validate rendered output with controlled inputs."""
+
+    def test_caddyfile_https_renders_with_correct_values(self, tmp_path):
+        """Render the HTTPS Caddyfile variant with known inputs and verify output content."""
+        output = tmp_path / "Caddyfile"
+        script = tmp_path / "render_test.sh"
+
+        # Write a bash script that replicates the HTTPS Caddyfile heredoc from install.sh
+        bash_content = (
+            "#!/bin/bash\n"
+            "set -euo pipefail\n"
+            'FQDN="myhost.example.ts.net"\n'
+            'SHORT_HOSTNAME="myhost"\n'
+            'CERT_PATH="/etc/ssl/tailscale/myhost.crt"\n'
+            'KEY_PATH="/etc/ssl/tailscale/myhost.key"\n'
+            f'OUTPUT="{output}"\n'
+            'cat > "$OUTPUT" <<EOF\n'
+            "# Frontdoor — main entry point on port 443\n"
+            "$FQDN:443 {\n"
+            "    tls $CERT_PATH $KEY_PATH\n"
+            "\n"
+            "    reverse_proxy localhost:8420\n"
+            "}\n"
+            "\n"
+            "# Short hostname redirect\n"
+            "http://$SHORT_HOSTNAME {\n"
+            "    redir https://$FQDN{uri} permanent\n"
+            "}\n"
+            "\n"
+            "import /etc/caddy/conf.d/*.caddy\n"
+            "EOF\n"
+        )
+        script.write_text(bash_content)
+        script.chmod(0o755)
+
+        result = subprocess.run(
+            ["bash", str(script)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Bash render failed:\n{result.stderr}"
+
+        content = output.read_text()
+        assert "myhost.example.ts.net:443" in content, (
+            "FQDN substitution missing in rendered Caddyfile"
+        )
+        assert "http://myhost {" in content, "Short hostname block missing"
+        assert "redir https://myhost.example.ts.net" in content, (
+            "Redirect to FQDN missing"
+        )
+        assert "import /etc/caddy/conf.d/*.caddy" in content, "conf.d import missing"

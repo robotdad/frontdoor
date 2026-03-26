@@ -171,6 +171,7 @@ sed \
     -e "s|FRONTDOOR_FQDN|$FQDN|g" \
     "$INSTALL_DIR/deploy/frontdoor.service" \
     > /etc/systemd/system/frontdoor.service
+chmod 600 /etc/systemd/system/frontdoor.service
 
 # --- Enable and start services ---
 echo "Starting services..."
