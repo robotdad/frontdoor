@@ -23,8 +23,6 @@ sudo deploy/install.sh
 4. **Short hostname redirect** — adds a redirect so `http://<short-hostname>/` resolves to the HTTPS Tailscale address.
 5. **Creates `manifests/`** — initialises `/opt/frontdoor/manifests/` for per-app JSON metadata files that apps can drop in to customize their dashboard entry.
 
-The installer is idempotent — safe to re-run after updates.
-
 ## Amplifier bundle
 
 frontdoor ships as an **Amplifier bundle** (`bundle.md`). The bundle packages:
@@ -46,17 +44,4 @@ Follow logs:
 
 ```bash
 journalctl -u frontdoor -f
-```
-
-Reload after config changes:
-
-```bash
-systemctl restart frontdoor
-```
-
-Check Caddy (handles HTTPS):
-
-```bash
-systemctl status caddy
-journalctl -u caddy -f
 ```
