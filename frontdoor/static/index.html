@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>frontdoor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"></script>
+  <style>
+    /* ─── Design Tokens ────────────────────────────────────────────────────── */
+    :root {
+      --space-xs:  4px;
+      --space-sm:  8px;
+      --space-md:  16px;
+      --space-lg:  24px;
+      --space-xl:  32px;
+
+      --radius-sm:   10px;
+      --radius-md:   14px;
+      --radius-lg:   20px;
+      --radius-full: 9999px;
+
+      --ease-out:      cubic-bezier(0.33, 1, 0.68, 1);
+      --spring:        cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      --spring-subtle: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+      /* Light mode — Apple HIG */
+      --bg:               #F5F5F7;
+      --elevated:         #FFFFFF;
+      --label:            #1D1D1F;
+      --label-secondary:  #6E6E73;
+      --label-tertiary:   #AEAEB2;
+      --separator:        rgba(60,60,67,0.12);
+      --tint:             #007AFF;
+      --fill:             rgba(120,120,128,0.20);
+      --fill-secondary:   rgba(120,120,128,0.16);
+      --fill-tertiary:    rgba(118,118,128,0.12);
+      --glass-bg:         rgba(255,255,255,0.72);
+      --glass-border:     rgba(255,255,255,0.5);
+      --glass-shadow:     0 8px 32px rgba(0,0,0,0.06);
+      --glass-highlight:  rgba(255,255,255,0.8);
+
+      --green:  #34C759;
+      --red:    #FF3B30;
+      --yellow: #FF9500;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:               #000000;
+        --elevated:         #1C1C1E;
+        --label:            #F5F5F7;
+        --label-secondary:  #98989D;
+        --label-tertiary:   #636366;
+        --separator:        rgba(84,84,88,0.36);
+        --fill:             rgba(120,120,128,0.36);
+        --fill-secondary:   rgba(120,120,128,0.32);
+        --fill-tertiary:    rgba(118,118,128,0.24);
+        --glass-bg:         rgba(28,28,30,0.80);
+        --glass-border:     rgba(255,255,255,0.08);
+        --glass-shadow:     0 8px 32px rgba(0,0,0,0.40);
+        --glass-highlight:  rgba(255,255,255,0.06);
+      }
+    }
+
+    /* ─── Reset & Base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scrollbar-width: thin;
+      scrollbar-color: var(--fill) transparent;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      background: var(--bg);
+      color: var(--label);
+      min-height: 100dvh;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    /* ─── Header — Category A Glass ──────────────────────────────────────── */
+    .header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--space-lg);
+      background: var(--glass-bg);
+      backdrop-filter: blur(40px) saturate(180%);
+      -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border-bottom: 0.5px solid var(--separator);
+      box-shadow:
+        var(--glass-shadow),
+        inset 0 1px 0 var(--glass-highlight);
+    }
+
+    .header-hostname {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--label);
+      font-feature-settings: 'kern' 1;
+    }
+
+    .header-hostname .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--label-secondary);
+    }
+
+    /* Refresh button — Category C Inline Interactive */
+    .btn-refresh {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--fill-tertiary);
+      border: none;
+      cursor: pointer;
+      color: var(--label-secondary);
+      transition: background 120ms var(--ease-out), transform 200ms var(--spring);
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-refresh i {
+      font-size: 16px;
+      display: block;
+      line-height: 1;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .btn-refresh:hover {
+        background: var(--fill-secondary);
+        color: var(--label);
+      }
+    }
+
+    .btn-refresh:active {
+      transform: rotate(90deg);
+      background: var(--fill);
+    }
+
+    /* Header action button group */
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-xs);
+    }
+
+    /* Sign Out button — Category C Inline Interactive */
+    .btn-signout {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--fill-tertiary);
+      border: none;
+      cursor: pointer;
+      color: var(--label-secondary);
+      transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-signout i {
+      font-size: 16px;
+      display: block;
+      line-height: 1;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .btn-signout:hover {
+        background: var(--fill-secondary);
+        color: var(--red);
+      }
+    }
+
+    .btn-signout:active {
+      background: var(--fill);
+    }
+
+    /* ─── Main Content ─────────────────────────────────────────────────────── */
+    .main {
+      padding: 72px var(--space-lg) var(--space-xl);
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    /* ─── Section Labels ───────────────────────────────────────────────────── */
+    .section-header {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-sm);
+      margin-top: var(--space-xl);
+      padding-left: 2px;
+    }
+
+    .section-header:first-child {
+      margin-top: var(--space-md);
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--label-tertiary);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .section-note {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--label-tertiary);
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    /* ─── Service Grid ─────────────────────────────────────────────────────── */
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: var(--space-sm);
+    }
+
+    /* ─── Service Card — Category B Content Container ─────────────────────── */
+    .service-card {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: var(--space-md);
+      background: var(--elevated);
+      border-radius: var(--radius-lg);
+      padding: var(--space-md) var(--space-lg);
+      border: 0.5px solid var(--separator);
+      cursor: pointer;
+      transition:
+        transform 150ms var(--ease-out),
+        box-shadow 150ms var(--ease-out);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+      text-decoration: none;
+      color: inherit;
+      position: relative;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .service-card:hover {
+        transform: translateY(-2px);
+        box-shadow:
+          0 6px 20px rgba(0,0,0,0.08),
+          0 2px 6px rgba(0,0,0,0.05);
+      }
+    }
+
+    .service-card:active {
+      transform: scale(0.98);
+    }
+
+    /* Down state — slightly muted */
+    .service-card.is-down {
+      opacity: 0.72;
+    }
+
+    /* Non-clickable card (Also Running) */
+    .service-card.no-link {
+      cursor: default;
+      opacity: 0.75;
+    }
+
+    .service-card.no-link:active {
+      transform: none;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .service-card.no-link:hover {
+        transform: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+      }
+    }
+
+    /* ─── Card: Icon Area ──────────────────────────────────────────────────── */
+    .card-icon {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-full);
+      background: var(--fill-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--tint);
+    }
+
+    .card-icon i {
+      font-size: 20px;
+      display: block;
+      line-height: 1;
+    }
+
+    /* Muted icon for "Also Running" */
+    .card-icon.muted {
+      color: var(--label-tertiary);
+    }
+
+    /* ─── Card: Body ───────────────────────────────────────────────────────── */
+    .card-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .card-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--label);
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+
+    .card-url {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--label-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+
+    .card-url .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+
+    /* ─── Card: Status Dot ─────────────────────────────────────────────────── */
+    .status-dot {
+      flex-shrink: 0;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .status-dot.up {
+      background: var(--green);
+      box-shadow: 0 0 0 2.5px rgba(52, 199, 89, 0.20);
+    }
+
+    .status-dot.down {
+      background: var(--red);
+      box-shadow: 0 0 0 2.5px rgba(255, 59, 48, 0.20);
+    }
+
+    /* ─── Port badge for "Also Running" ────────────────────────────────────── */
+    .port-badge {
+      flex-shrink: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--label-tertiary);
+      background: var(--fill-tertiary);
+      border-radius: var(--radius-sm);
+      padding: 3px 7px;
+      letter-spacing: -0.02em;
+      border: 0.5px solid var(--separator);
+    }
+
+    /* ─── Loading / Error states ───────────────────────────────────────────── */
+    .loading-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-xl);
+      color: var(--label-tertiary);
+      font-size: 13px;
+    }
+
+    .error-state {
+      padding: var(--space-md);
+      background: rgba(255, 59, 48, 0.08);
+      border-radius: var(--radius-md);
+      color: var(--red);
+      font-size: 13px;
+      border: 0.5px solid rgba(255, 59, 48, 0.20);
+    }
+
+    /* ─── Empty / Footer spacer ─────────────────────────────────────────────── */
+    .page-footer {
+      margin-top: var(--space-xl);
+      padding-bottom: var(--space-xl);
+      text-align: center;
+    }
+
+    .footer-text {
+      font-size: 11px;
+      color: var(--label-tertiary);
+      letter-spacing: 0.02em;
+    }
+
+    /* ─── Responsive ────────────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .service-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .main {
+        padding: 68px var(--space-md) var(--space-lg);
+      }
+
+      .service-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .header {
+        padding: 0 var(--space-md);
+      }
+    }
+
+    /* ─── Reduced Motion ────────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      html {
+        scroll-behavior: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script type="module">
+    import { html, render, useState, useEffect, useCallback } from 'https://esm.sh/htm/preact/standalone';
+
+    // ─── Icon mapping ──────────────────────────────────────────────────────────
+    const ICON_MAP = {
+      'folder':      'ph-bold ph-folder',
+      'hard-drive':  'ph-bold ph-hard-drive',
+      'monitor':     'ph-bold ph-monitor',
+      'microphone':  'ph-bold ph-microphone',
+      'lightning':   'ph-bold ph-lightning',
+      'globe':       'ph-bold ph-globe',
+      'terminal':    'ph-bold ph-terminal',
+      'code':        'ph-bold ph-code',
+      'database':    'ph-bold ph-database',
+      'cloud':       'ph-bold ph-cloud',
+      'cpu':         'ph-bold ph-cpu',
+      'git-branch':  'ph-bold ph-git-branch',
+      'chart':       'ph-bold ph-chart-line',
+      'lock':        'ph-bold ph-lock',
+      'robot':       'ph-bold ph-robot',
+      'wrench':      'ph-bold ph-wrench',
+    };
+
+    function iconClass(icon) {
+      return ICON_MAP[icon] || 'ph-bold ph-globe';
+    }
+
+    // ─── ServiceCard component ─────────────────────────────────────────────────
+    function ServiceCard({ service }) {
+      const isDown = service.status === 'down';
+      const cardClass = ['service-card', isDown ? 'is-down' : ''].filter(Boolean).join(' ');
+
+      return html`
+        <a
+          class=${cardClass}
+          href=${service.url}
+          target="_blank"
+          rel="noopener"
+        >
+          <div class="card-icon">
+            <i class=${iconClass(service.icon)}></i>
+          </div>
+          <div class="card-body">
+            <div class="card-name">${service.name}</div>
+            <div class="card-url">
+              <span class="mono">${service.url}</span>
+            </div>
+          </div>
+          <span
+            class=${'status-dot ' + service.status}
+            title=${service.status === 'up' ? 'Up' : 'Down'}
+          ></span>
+        </a>
+      `;
+    }
+
+    // ─── UnregisteredCard component ────────────────────────────────────────────
+    function UnregisteredCard({ proc }) {
+      return html`
+        <div class="service-card no-link">
+          <div class="card-icon muted">
+            <i class="ph-bold ph-terminal"></i>
+          </div>
+          <div class="card-body">
+            <div class="card-name">${proc.name}</div>
+            <div class="card-url">Process — port <span class="mono">${proc.port}</span></div>
+          </div>
+          <span class="port-badge">:${proc.port}</span>
+        </div>
+      `;
+    }
+
+    // ─── App component ─────────────────────────────────────────────────────────
+    function App() {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [hostname, setHostname] = useState(window.location.hostname);
+
+      const fetchServices = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const resp = await fetch('/api/services');
+          if (!resp.ok) {
+            if (resp.status === 401 || resp.status === 403) {
+              window.location.href = '/login.html';
+              return;
+            }
+            throw new Error(`HTTP ${resp.status}`);
+          }
+          const json = await resp.json();
+          setData(json);
+        } catch (err) {
+          setError(err.message || 'Failed to load services');
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => {
+        fetchServices();
+      }, [fetchServices]);
+
+      const services = data?.services ?? [];
+      const unregistered = data?.unregistered ?? [];
+
+      return html`
+        <header class="header">
+          <span class="header-hostname">
+            <span class="mono">${hostname}</span>
+          </span>
+          <div class="header-actions">
+            <button
+              class="btn-refresh"
+              title="Refresh"
+              onClick=${fetchServices}
+              disabled=${loading}
+            >
+              <i class="ph-bold ph-arrow-clockwise"></i>
+            </button>
+            <form method="POST" action="/api/auth/logout" style="display:contents">
+              <button class="btn-signout" type="submit" title="Sign Out">
+                <i class="ph-bold ph-sign-out"></i>
+              </button>
+            </form>
+          </div>
+        </header>
+
+        <main class="main">
+
+          <div class="section-header">
+            <span class="section-label">Services</span>
+          </div>
+
+          ${loading && html`
+            <div class="loading-state">Loading services…</div>
+          `}
+
+          ${error && html`
+            <div class="error-state">Error: ${error}</div>
+          `}
+
+          ${!loading && !error && html`
+            <div class="service-grid">
+              ${services.map(svc => html`<${ServiceCard} key=${svc.url || svc.name} service=${svc} />`)}
+            </div>
+          `}
+
+          ${!loading && !error && unregistered.length > 0 && html`
+            <div class="section-header">
+              <span class="section-label">Also Running</span>
+              <span class="section-note">Not configured in Caddy</span>
+            </div>
+            <div class="service-grid">
+              ${unregistered.map(proc => html`<${UnregisteredCard} key=${proc.port} proc=${proc} />`)}
+            </div>
+          `}
+
+          <div class="page-footer">
+            <p class="footer-text">frontdoor · ${hostname}</p>
+          </div>
+
+        </main>
+      `;
+    }
+
+    render(html`<${App} />`, document.getElementById('app'));
+  </script>
+</body>
+</html>
