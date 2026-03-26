@@ -348,6 +348,16 @@ class TestServicesRequiresAuth:
 # ---------------------------------------------------------------------------
 
 
+def _parse_session_cookie(response) -> str:
+    """Extract frontdoor_session value from a response's set-cookie header."""
+    from http.cookies import SimpleCookie
+
+    cookie: SimpleCookie = SimpleCookie()
+    cookie.load(response.headers.get("set-cookie", ""))
+    morsel = cookie.get("frontdoor_session")
+    return morsel.value if morsel else ""
+
+
 class TestFullAuthFlow:
     def test_unauthenticated_validate_returns_401(self, auth_client):
         """Unauthenticated request to /api/auth/validate returns 401."""
@@ -365,21 +375,27 @@ class TestFullAuthFlow:
         assert login_response.status_code == 303
 
         # Extract frontdoor_session cookie from set-cookie header
-        set_cookie_header = login_response.headers.get("set-cookie", "")
-        cookie_value = set_cookie_header.split("frontdoor_session=")[1].split(";")[0]
-
-        # Set cookie on client
-        auth_client.cookies.set("frontdoor_session", cookie_value)
+        auth_client.cookies.set(
+            "frontdoor_session", _parse_session_cookie(login_response)
+        )
 
         # GET /api/auth/validate → 200 + X-Authenticated-User
         validate_response = auth_client.get("/api/auth/validate")
         assert validate_response.status_code == 200
         assert validate_response.headers.get("x-authenticated-user") == "testuser"
 
-        # POST logout
-        auth_client.post("/api/auth/logout")
+        # POST logout — verify the response itself clears the session cookie
+        logout_response = auth_client.post("/api/auth/logout")
+        assert logout_response.status_code == 303
+        assert logout_response.headers.get("location") in (
+            "/login",
+            "https://testserver/login",
+        )
+        logout_set_cookie = logout_response.headers.get("set-cookie", "")
+        assert "frontdoor_session" in logout_set_cookie
+        assert "max-age=0" in logout_set_cookie.lower()
 
-        # Clear client cookies → validate returns 401
+        # Clear client cookies (simulates browser honouring the deletion directive)
         auth_client.cookies.clear()
         validate_again = auth_client.get("/api/auth/validate")
         assert validate_again.status_code == 401
@@ -404,12 +420,10 @@ class TestFullAuthFlow:
         assert login_response.status_code == 303
         assert login_response.headers.get("location") == "/"
 
-        # Extract cookie from set-cookie header
-        set_cookie_header = login_response.headers.get("set-cookie", "")
-        cookie_value = set_cookie_header.split("frontdoor_session=")[1].split(";")[0]
-
-        # Set cookie on client
-        auth_client.cookies.set("frontdoor_session", cookie_value)
+        # Extract cookie from set-cookie header and set on client
+        auth_client.cookies.set(
+            "frontdoor_session", _parse_session_cookie(login_response)
+        )
 
         # GET validate → 200
         validate_response = auth_client.get("/api/auth/validate")
