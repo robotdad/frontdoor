@@ -20,14 +20,19 @@ async def login_page() -> FileResponse:
     return FileResponse(_STATIC_DIR / "login.html")
 
 
-def _safe_next_url(url: str) -> str:
-    """Return url if it is a safe local path, otherwise return '/'.
+def _safe_next_url(url: str, trusted_origins: list[str] | None = None) -> str:
+    """Return url if it is a safe local path or matches a trusted origin, otherwise '/'.
 
     Accepts paths that start with '/' but not '//' (protocol-relative URLs
     would be followed by browsers as external redirects).
+    Accepts absolute URLs whose origin matches one of the configured trusted_origins.
     """
     if url.startswith("/") and not url.startswith("//"):
         return url
+    if trusted_origins:
+        for origin in trusted_origins:
+            if url.startswith(origin):
+                return url
     return "/"
 
 
@@ -48,7 +53,7 @@ async def login(
     next_url: str = Query(default="/", alias="next"),
 ) -> RedirectResponse:
     """Login endpoint: validates PAM credentials and issues a session cookie."""
-    safe_next = _safe_next_url(next_url)
+    safe_next = _safe_next_url(next_url, settings.trusted_origins)
     if not authenticate_pam(username, password):
         params = urlencode({"error": "1", "next": safe_next})
         return RedirectResponse(

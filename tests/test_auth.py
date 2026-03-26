@@ -341,3 +341,87 @@ class TestServicesRequiresAuth:
                 cookies={"frontdoor_session": valid_token},
             )
         assert response.status_code != 401
+
+
+# ---------------------------------------------------------------------------
+# End-to-end integration tests: full auth lifecycle and deep link flow
+# ---------------------------------------------------------------------------
+
+
+class TestFullAuthFlow:
+    def test_unauthenticated_validate_returns_401(self, auth_client):
+        """Unauthenticated request to /api/auth/validate returns 401."""
+        response = auth_client.get("/api/auth/validate")
+        assert response.status_code == 401
+
+    def test_login_then_validate_then_logout(self, auth_client):
+        """Full lifecycle: login -> cookie -> validate -> 200 -> logout -> validate -> 401."""
+        # POST login with mocked PAM
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            login_response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert login_response.status_code == 303
+
+        # Extract frontdoor_session cookie from set-cookie header
+        set_cookie_header = login_response.headers.get("set-cookie", "")
+        cookie_value = set_cookie_header.split("frontdoor_session=")[1].split(";")[0]
+
+        # GET /api/auth/validate with the cookie → 200 + X-Authenticated-User
+        validate_response = auth_client.get(
+            "/api/auth/validate",
+            cookies={"frontdoor_session": cookie_value},
+        )
+        assert validate_response.status_code == 200
+        assert validate_response.headers.get("x-authenticated-user") == "testuser"
+
+        # POST logout
+        auth_client.post("/api/auth/logout")
+
+        # Clear client cookies (don't pass cookie) → validate returns 401
+        validate_again = auth_client.get("/api/auth/validate")
+        assert validate_again.status_code == 401
+
+    def test_deep_link_flow(self, auth_client):
+        """Deep link flow preserves absolute next URL through login."""
+        from urllib.parse import urlencode
+
+        from frontdoor.config import Settings
+        from frontdoor.config import settings as real_settings
+
+        # GET validate → 401
+        response = auth_client.get("/api/auth/validate")
+        assert response.status_code == 401
+
+        # Build settings with trusted origin for the deep link host
+        next_url = "https://monad.tail09557f.ts.net:8443/files"
+        deep_link_settings = Settings()
+        deep_link_settings.secret_key = real_settings.secret_key
+        deep_link_settings.session_timeout = real_settings.session_timeout
+        deep_link_settings.cookie_domain = ""
+        deep_link_settings.trusted_origins = ["https://monad.tail09557f.ts.net:8443"]
+
+        # POST login with next=full absolute URL → 303 with location = full URL
+        login_url = f"/api/auth/login?{urlencode({'next': next_url})}"
+        with (
+            patch("frontdoor.routes.auth.authenticate_pam", return_value=True),
+            _patch("frontdoor.routes.auth.settings", deep_link_settings),
+        ):
+            login_response = auth_client.post(
+                login_url,
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert login_response.status_code == 303
+        assert login_response.headers.get("location") == next_url
+
+        # Extract cookie from set-cookie header
+        set_cookie_header = login_response.headers.get("set-cookie", "")
+        cookie_value = set_cookie_header.split("frontdoor_session=")[1].split(";")[0]
+
+        # GET validate with cookie → 200
+        validate_response = auth_client.get(
+            "/api/auth/validate",
+            cookies={"frontdoor_session": cookie_value},
+        )
+        assert validate_response.status_code == 200
