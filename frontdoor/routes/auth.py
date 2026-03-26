@@ -1,14 +1,23 @@
 """Auth endpoints: Caddy forward_auth validate and logout."""
 
+from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from frontdoor.auth import authenticate_pam, create_session_token, require_auth
 from frontdoor.config import settings
 
 router = APIRouter()
+
+_STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+@router.get("/login")
+async def login_page() -> FileResponse:
+    """Serve the login HTML page."""
+    return FileResponse(_STATIC_DIR / "login.html")
 
 
 def _safe_next_url(url: str) -> str:

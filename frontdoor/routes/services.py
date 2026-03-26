@@ -1,8 +1,9 @@
 """GET /api/services endpoint — discovers Caddy-proxied and unregistered services."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
+from frontdoor.auth import require_auth
 from frontdoor.config import settings
 from frontdoor.discovery import (
     overlay_manifests,
@@ -44,6 +45,6 @@ def _collect_services() -> dict:
 
 
 @router.get("/api/services")
-async def get_services() -> dict:
+async def get_services(username: str = Depends(require_auth)) -> dict:
     """Return all known services and any unregistered listening processes."""
     return await run_in_threadpool(_collect_services)

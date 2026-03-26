@@ -308,3 +308,36 @@ class TestLoginRoute:
         assert response.status_code == 303
         set_cookie = response.headers.get("set-cookie", "")
         assert "frontdoor_session" not in set_cookie
+
+
+class TestLoginPageRoute:
+    def test_login_page_returns_html(self, auth_client):
+        """GET /login returns 200 with HTML containing 'Sign In'."""
+        response = auth_client.get("/login")
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+        assert "Sign In" in response.text
+
+
+class TestServicesRequiresAuth:
+    def test_services_returns_401_without_cookie(self, auth_client):
+        """GET /api/services returns 401 when no session cookie is present."""
+        response = auth_client.get("/api/services")
+        assert response.status_code == 401
+
+    def test_services_returns_200_with_valid_cookie(
+        self, auth_client, valid_token, patched_settings
+    ):
+        """GET /api/services does not return 401 when a valid session cookie is present."""
+        with (
+            _patch("frontdoor.auth.settings", patched_settings),
+            _patch(
+                "frontdoor.routes.services._collect_services",
+                return_value={"services": [], "unregistered": []},
+            ),
+        ):
+            response = auth_client.get(
+                "/api/services",
+                cookies={"frontdoor_session": valid_token},
+            )
+        assert response.status_code != 401

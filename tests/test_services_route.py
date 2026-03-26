@@ -7,6 +7,7 @@ import pytest
 from starlette.testclient import TestClient
 
 import frontdoor.config as config_module
+from frontdoor.auth import create_session_token
 from frontdoor.main import app
 
 # Single ss output line: java process listening on port 9200.
@@ -45,7 +46,12 @@ def service_client(tmp_caddy_dir, tmp_manifest_dir):
     config_module.settings.caddy_conf_d = tmp_caddy_dir / "conf.d"
     config_module.settings.manifest_dir = tmp_manifest_dir
 
+    # Generate a valid session token so the protected /api/services endpoint
+    # accepts requests from this test client.
+    token = create_session_token("testuser", config_module.settings.secret_key)
+
     with TestClient(app, base_url="https://testserver") as client:
+        client.cookies.set("frontdoor_session", token)
         yield client
 
     # Restore original settings unconditionally.
