@@ -558,6 +558,10 @@
         setError(null);
         try {
           const resp = await fetch('/api/services');
+          if (resp.status === 401) {
+            window.location.href = '/login?next=/';
+            return;
+          }
           if (resp.ok) {
             const json = await resp.json();
             setData(json);
