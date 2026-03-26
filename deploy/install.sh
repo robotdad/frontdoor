@@ -21,6 +21,16 @@ echo "  FQDN: $FQDN"
 SHORT_HOSTNAME=$(hostname -s)
 echo "  Short hostname: $SHORT_HOSTNAME"
 
+# Validate FQDN and SHORT_HOSTNAME before use in config generation
+if [ -z "$FQDN" ] || [[ "$FQDN" =~ [^a-zA-Z0-9.\-] ]]; then
+    echo "ERROR: Invalid or empty FQDN detected: '$FQDN'" >&2
+    exit 1
+fi
+if [ -z "$SHORT_HOSTNAME" ] || [[ "$SHORT_HOSTNAME" =~ [^a-zA-Z0-9\-] ]]; then
+    echo "ERROR: Invalid or empty SHORT_HOSTNAME detected: '$SHORT_HOSTNAME'" >&2
+    exit 1
+fi
+
 CERT_PATH="$CERT_DIR/$FQDN.crt"
 KEY_PATH="$CERT_DIR/$FQDN.key"
 
@@ -28,7 +38,7 @@ KEY_PATH="$CERT_DIR/$FQDN.key"
 echo "Setting up secret key..."
 SECRET_FILE="$INSTALL_DIR/.secret_key"
 if [ -f "$SECRET_FILE" ]; then
-    SECRET_KEY=$(cat "$SECRET_FILE")
+    SECRET_KEY=$(grep '^FRONTDOOR_SECRET_KEY=' "$SECRET_FILE" | cut -d= -f2-)
     echo "  Using existing secret key"
 else
     SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -50,10 +60,8 @@ mkdir -p "$INSTALL_DIR"
 chown "$USER:$USER" "$INSTALL_DIR"
 rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='.git' "$PROJECT_DIR/" "$INSTALL_DIR/"
 
-# Save secret key
-mkdir -p "$INSTALL_DIR"
-echo "$SECRET_KEY" > "$SECRET_FILE"
-chmod 600 "$SECRET_FILE"
+# Save secret key in EnvironmentFile format (atomic creation with restrictive permissions)
+(umask 177; echo "FRONTDOOR_SECRET_KEY=$SECRET_KEY" > "$SECRET_FILE")
 
 # --- Create venv and install ---
 echo "Setting up Python environment..."
@@ -163,15 +171,15 @@ fi
 
 # --- Write systemd unit ---
 echo "Installing systemd unit..."
-sed \
+# Secret is read via EnvironmentFile=/opt/frontdoor/.secret_key — not injected inline.
+# Unit file is created atomically with restrictive permissions (umask 177 = mode 0600).
+(umask 177; sed \
     -e "s|FRONTDOOR_USER|$USER|g" \
     -e "s|FRONTDOOR_DIR|$INSTALL_DIR|g" \
-    -e "s|FRONTDOOR_SECRET|$SECRET_KEY|g" \
     -e "s|FRONTDOOR_HTTPS_ENABLED|$HTTPS|g" \
     -e "s|FRONTDOOR_FQDN|$FQDN|g" \
     "$INSTALL_DIR/deploy/frontdoor.service" \
-    > /etc/systemd/system/frontdoor.service
-chmod 600 /etc/systemd/system/frontdoor.service
+    > /etc/systemd/system/frontdoor.service)
 
 # --- Enable and start services ---
 echo "Starting services..."

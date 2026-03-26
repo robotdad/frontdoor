@@ -75,9 +75,15 @@ class TestSecretKeyGeneration:
     def test_generates_new_secret_key(self, script_content):
         assert "secrets.token_hex(32)" in script_content
 
-    def test_saves_secret_key_with_chmod_600(self, script_content):
-        # Must save and protect the secret key
-        assert "chmod 600" in script_content
+    def test_saves_secret_key_atomically_with_restrictive_permissions(
+        self, script_content
+    ):
+        """Secret file must be created with restrictive permissions at write time, not after."""
+        # umask 177 in a subshell creates files as mode 0600 atomically
+        assert "umask 177" in script_content, (
+            "Secret file must be created atomically via (umask 177; ...) — "
+            "writing then chmod 600 creates a window of exposure"
+        )
         assert ".secret_key" in script_content
 
 
@@ -185,8 +191,12 @@ class TestSystemdUnit:
     def test_sed_replaces_frontdoor_dir(self, script_content):
         assert "FRONTDOOR_DIR" in script_content
 
-    def test_sed_replaces_frontdoor_secret(self, script_content):
-        assert "FRONTDOOR_SECRET" in script_content
+    def test_secret_not_injected_inline_via_sed(self, script_content):
+        """Regression: secret must NOT be substituted inline into the systemd unit via sed."""
+        assert "s|FRONTDOOR_SECRET|" not in script_content, (
+            "Secret must not be injected inline into the systemd unit — "
+            "use EnvironmentFile= instead"
+        )
 
     def test_sed_replaces_frontdoor_https_enabled(self, script_content):
         assert "FRONTDOOR_HTTPS_ENABLED" in script_content
@@ -241,25 +251,17 @@ class TestScriptSyntax:
 
 
 class TestSystemdUnitPermissions:
-    """Critical: the generated systemd unit embeds the secret key and must be chmod 600."""
+    """Systemd unit must be written with restrictive permissions atomically."""
 
-    def test_systemd_unit_is_chmod_600_after_write(self, script_content):
-        """chmod 600 must appear AFTER the sed command that writes the unit file."""
-        chmod_str = "chmod 600 /etc/systemd/system/frontdoor.service"
-        assert chmod_str in script_content, (
-            "Missing: chmod 600 /etc/systemd/system/frontdoor.service — "
-            "the generated unit embeds the secret key and must not be world-readable"
+    def test_systemd_unit_written_atomically_with_restrictive_permissions(
+        self, script_content
+    ):
+        """Unit file must be created via (umask 177; ...) -- atomic, no exposure window."""
+        assert "umask 177" in script_content, (
+            "Systemd unit must be created atomically via (umask 177; ...) -- "
+            "writing then chmod creates a window of exposure"
         )
-        # Anchor on the sed output redirection line ("> /etc/systemd/system/frontdoor.service")
-        write_anchor = "> /etc/systemd/system/frontdoor.service"
-        write_idx = script_content.find(write_anchor)
-        chmod_idx = script_content.find(chmod_str)
-        assert write_idx != -1, (
-            "Could not find sed redirection to /etc/systemd/system/frontdoor.service"
-        )
-        assert chmod_idx > write_idx, (
-            "chmod 600 must appear after the sed command that writes the unit file"
-        )
+        assert "/etc/systemd/system/frontdoor.service" in script_content
 
 
 class TestBehavioralRendering:
@@ -314,3 +316,68 @@ class TestBehavioralRendering:
             "Redirect to FQDN missing"
         )
         assert "import /etc/caddy/conf.d/*.caddy" in content, "conf.d import missing"
+
+
+class TestSecretDeliveryDesign:
+    """Regression tests for correct secret delivery via EnvironmentFile=."""
+
+    def test_secret_not_injected_inline_via_sed(self, script_content):
+        """Regression: secret must NOT be substituted inline into the systemd unit via sed."""
+        assert "s|FRONTDOOR_SECRET|" not in script_content, (
+            "Secret must not be injected inline into the systemd unit -- "
+            "use EnvironmentFile= instead"
+        )
+
+    def test_install_references_environment_file_secret(self, script_content):
+        """install.sh must write the secret in EnvironmentFile key=value format."""
+        assert (
+            "EnvironmentFile" in script_content
+            or "FRONTDOOR_SECRET_KEY=" in script_content
+        ), "install.sh must write the secret in EnvironmentFile format (KEY=value)"
+
+    def test_service_template_uses_environment_file(self):
+        """Service template must use EnvironmentFile= for secret delivery, not Environment=."""
+        service_path = os.path.join(
+            os.path.dirname(__file__), "..", "deploy", "frontdoor.service"
+        )
+        with open(service_path) as f:
+            service_content = f.read()
+        assert "EnvironmentFile=" in service_content, (
+            "frontdoor.service must use EnvironmentFile= for secret delivery"
+        )
+
+    def test_service_template_no_inline_secret_placeholder(self):
+        """Service template must NOT embed the secret placeholder in Environment=."""
+        service_path = os.path.join(
+            os.path.dirname(__file__), "..", "deploy", "frontdoor.service"
+        )
+        with open(service_path) as f:
+            service_content = f.read()
+        assert (
+            "Environment=FRONTDOOR_SECRET_KEY=FRONTDOOR_SECRET" not in service_content
+        ), "Secret placeholder must not appear in Environment= -- use EnvironmentFile="
+
+
+class TestFqdnValidation:
+    """FQDN and SHORT_HOSTNAME must be validated before use in config generation."""
+
+    def test_fqdn_validated_after_detection(self, script_content):
+        """Script must validate FQDN is non-empty before rendering Caddy config."""
+        # Pattern: [ -z "$FQDN" ] or similar empty-check for the FQDN variable
+        assert '-z "$FQDN"' in script_content or '[ -z "$FQDN"' in script_content, (
+            "FQDN must be validated for emptiness immediately after detection"
+        )
+
+    def test_short_hostname_validated_after_detection(self, script_content):
+        """Script must validate SHORT_HOSTNAME is non-empty before rendering Caddy config."""
+        # Pattern: [ -z "$SHORT_HOSTNAME" ] or similar empty-check
+        assert (
+            '-z "$SHORT_HOSTNAME"' in script_content
+            or '[ -z "$SHORT_HOSTNAME"' in script_content
+        ), "SHORT_HOSTNAME must be validated for emptiness immediately after detection"
+
+    def test_fqdn_validation_fails_fast(self, script_content):
+        """Validation must exit the script on empty/invalid FQDN, not silently continue."""
+        assert "exit 1" in script_content, (
+            "Script must exit 1 on invalid FQDN to prevent broken Caddy config generation"
+        )

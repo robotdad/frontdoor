@@ -10,7 +10,7 @@ WorkingDirectory=FRONTDOOR_DIR
 ExecStart=FRONTDOOR_DIR/.venv/bin/uvicorn frontdoor.main:app --host 127.0.0.1 --port 8420
 Restart=always
 RestartSec=5
-Environment=FRONTDOOR_SECRET_KEY=FRONTDOOR_SECRET
+EnvironmentFile=/opt/frontdoor/.secret_key
 Environment=FRONTDOOR_SECURE_COOKIES=FRONTDOOR_HTTPS_ENABLED
 Environment=FRONTDOOR_COOKIE_DOMAIN=FRONTDOOR_FQDN
 
