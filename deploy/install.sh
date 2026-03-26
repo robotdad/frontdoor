@@ -111,7 +111,7 @@ $FQDN:$FILEBROWSER_NEW_PORT {
     tls $CERT_PATH $KEY_PATH
 
     forward_auth localhost:8420 {
-        uri /auth/verify
+        uri /api/auth/validate
         copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
     }
 
@@ -122,7 +122,7 @@ EOF
         cat > /etc/caddy/conf.d/filebrowser.caddy <<EOF
 http://$FQDN:$FILEBROWSER_NEW_PORT {
     forward_auth localhost:8420 {
-        uri /auth/verify
+        uri /api/auth/validate
         copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
     }
 

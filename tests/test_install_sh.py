@@ -154,6 +154,17 @@ class TestCaddyMigration:
         assert "forward_auth" in script_content
         assert "localhost:8420" in script_content
 
+    def test_migration_uses_correct_auth_endpoint(self, script_content):
+        """Filebrowser migration must use /api/auth/validate, not the stale /auth/verify."""
+        assert "/api/auth/validate" in script_content, (
+            "Filebrowser migration must use '/api/auth/validate' -- "
+            "the app exposes GET /api/auth/validate, not /auth/verify"
+        )
+        assert "/auth/verify" not in script_content, (
+            "Stale '/auth/verify' endpoint found in install.sh -- "
+            "must be replaced with '/api/auth/validate'"
+        )
+
     def test_migration_handles_https_and_http(self, script_content):
         # Both HTTPS and HTTP variants of migration
         assert "HTTPS" in script_content
