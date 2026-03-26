@@ -24,13 +24,6 @@ class Settings:
     cookie_domain: str = field(
         default_factory=lambda: os.environ.get("FRONTDOOR_COOKIE_DOMAIN", "")
     )
-    trusted_origins: list[str] = field(
-        default_factory=lambda: [
-            o.strip()
-            for o in os.environ.get("FRONTDOOR_TRUSTED_ORIGINS", "").split(",")
-            if o.strip()
-        ]
-    )
 
 
 settings = Settings()

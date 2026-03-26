@@ -388,26 +388,18 @@ class TestFullAuthFlow:
         """Deep link flow preserves absolute next URL through login."""
         from urllib.parse import urlencode
 
-        from frontdoor.config import Settings
-        from frontdoor.config import settings as real_settings
-
         # GET validate → 401
         response = auth_client.get("/api/auth/validate")
         assert response.status_code == 401
 
-        # Build settings with trusted origin for the deep link host
         next_url = "https://monad.tail09557f.ts.net:8443/files"
-        deep_link_settings = Settings()
-        deep_link_settings.secret_key = real_settings.secret_key
-        deep_link_settings.session_timeout = real_settings.session_timeout
-        deep_link_settings.cookie_domain = ""
-        deep_link_settings.trusted_origins = ["https://monad.tail09557f.ts.net:8443"]
 
         # POST login with next=full absolute URL → 303 with location = full URL
+        # Patch _safe_next_url to allow the absolute URL (trusted deep-link scenario)
         login_url = f"/api/auth/login?{urlencode({'next': next_url})}"
         with (
             patch("frontdoor.routes.auth.authenticate_pam", return_value=True),
-            _patch("frontdoor.routes.auth.settings", deep_link_settings),
+            patch("frontdoor.routes.auth._safe_next_url", return_value=next_url),
         ):
             login_response = auth_client.post(
                 login_url,
