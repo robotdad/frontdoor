@@ -1,34 +1,375 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In &mdash; Frontdoor</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In &mdash; Frontdoor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ─── Design Tokens ──────────────────────────────────────────────────────── */
+    :root {
+      --space-xs:  4px;
+      --space-sm:  8px;
+      --space-md:  16px;
+      --space-lg:  24px;
+      --space-xl:  32px;
+
+      --radius-sm:   10px;
+      --radius-md:   14px;
+      --radius-lg:   20px;
+      --radius-full: 9999px;
+
+      --ease-out:      cubic-bezier(0.33, 1, 0.68, 1);
+      --spring:        cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      --spring-subtle: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+      /* Light mode — Apple HIG */
+      --bg:               #F5F5F7;
+      --elevated:         #FFFFFF;
+      --label:            #1D1D1F;
+      --label-secondary:  #6E6E73;
+      --label-tertiary:   #AEAEB2;
+      --separator:        rgba(60,60,67,0.12);
+      --tint:             #007AFF;
+      --fill:             rgba(120,120,128,0.20);
+      --fill-secondary:   rgba(120,120,128,0.16);
+      --fill-tertiary:    rgba(118,118,128,0.12);
+      --glass-bg:         rgba(255,255,255,0.72);
+      --glass-border:     rgba(255,255,255,0.5);
+      --glass-shadow:     0 8px 32px rgba(0,0,0,0.06);
+      --glass-highlight:  rgba(255,255,255,0.8);
+
+      --green:  #34C759;
+      --red:    #FF3B30;
+      --yellow: #FF9500;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:               #000000;
+        --elevated:         #1C1C1E;
+        --label:            #F5F5F7;
+        --label-secondary:  #98989D;
+        --label-tertiary:   #636366;
+        --separator:        rgba(84,84,88,0.36);
+        --fill:             rgba(120,120,128,0.36);
+        --fill-secondary:   rgba(120,120,128,0.32);
+        --fill-tertiary:    rgba(118,118,128,0.24);
+        --glass-bg:         rgba(28,28,30,0.80);
+        --glass-border:     rgba(255,255,255,0.08);
+        --glass-shadow:     0 8px 32px rgba(0,0,0,0.40);
+        --glass-highlight:  rgba(255,255,255,0.06);
+      }
+    }
+
+    /* ─── Reset & Base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      background: var(--bg);
+      color: var(--label);
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-lg);
+    }
+
+    /* ─── Card Entrance Animation ───────────────────────────────────────────── */
+    @keyframes cardEntrance {
+      from {
+        opacity: 0;
+        transform: scale(0.94) translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    /* ─── Login Card ────────────────────────────────────────────────────────── */
+    .login-card {
+      width: 100%;
+      max-width: 400px;
+      background: var(--elevated);
+      border-radius: var(--radius-lg);
+      border: 0.5px solid var(--separator);
+      box-shadow: var(--glass-shadow);
+      padding: var(--space-xl) var(--space-xl);
+      animation: cardEntrance 400ms var(--spring) both;
+    }
+
+    /* ─── Lock Icon Area ────────────────────────────────────────────────────── */
+    .lock-icon-wrap {
+      display: flex;
+      justify-content: center;
+      margin-bottom: var(--space-lg);
+    }
+
+    .lock-icon-bg {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-md);
+      background: var(--fill-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--tint);
+    }
+
+    /* ─── Heading ───────────────────────────────────────────────────────────── */
+    .login-heading {
+      text-align: center;
+      margin-bottom: var(--space-xs);
+    }
+
+    .login-title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--label);
+    }
+
+    .login-subtitle {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--label-secondary);
+      margin-top: var(--space-xs);
+      text-align: center;
+    }
+
+    /* ─── Error Message ─────────────────────────────────────────────────────── */
+    .error-msg {
+      display: none;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm) var(--space-md);
+      background: rgba(255, 59, 48, 0.10);
+      border: 0.5px solid rgba(255, 59, 48, 0.25);
+      border-radius: var(--radius-md);
+      color: var(--red);
+      font-size: 14px;
+      margin-top: var(--space-md);
+    }
+
+    .error-msg.visible {
+      display: flex;
+    }
+
+    .error-icon {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+    }
+
+    /* ─── Form ──────────────────────────────────────────────────────────────── */
+    .login-form {
+      margin-top: var(--space-lg);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-md);
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-xs);
+    }
+
+    .field-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--label-secondary);
+      user-select: none;
+    }
+
+    .field-input {
+      width: 100%;
+      padding: 10px var(--space-md);
+      border-radius: var(--radius-md);
+      border: 0.5px solid var(--separator);
+      background: var(--fill-tertiary);
+      color: var(--label);
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 400;
+      outline: none;
+      transition: border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+      -webkit-appearance: none;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    .field-input:focus {
+      border-color: var(--tint);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.18);
+    }
+
+    .field-input::placeholder {
+      color: var(--label-tertiary);
+    }
+
+    /* ─── Sign In Button ────────────────────────────────────────────────────── */
+    .btn-signin {
+      width: 100%;
+      padding: 12px var(--space-lg);
+      border-radius: var(--radius-md);
+      background: var(--tint);
+      color: #FFFFFF;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+      transition:
+        opacity 120ms var(--ease-out),
+        transform 150ms var(--spring-subtle);
+      letter-spacing: -0.01em;
+      margin-top: var(--space-xs);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .btn-signin:hover {
+        opacity: 0.88;
+      }
+    }
+
+    .btn-signin:active {
+      transform: scale(0.97);
+      opacity: 0.82;
+    }
+
+    .btn-signin:focus-visible {
+      outline: 2px solid var(--tint);
+      outline-offset: 2px;
+    }
+
+    /* ─── Footer ────────────────────────────────────────────────────────────── */
+    .login-footer {
+      margin-top: var(--space-lg);
+      text-align: center;
+      font-size: 13px;
+      color: var(--label-tertiary);
+    }
+
+    /* ─── Reduced Motion ────────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
 </head>
 <body>
-    <h1>Sign In</h1>
-    <div id="error-msg" style="display:none;color:red">Invalid username or password.</div>
-    <form method="POST" action="/api/auth/login">
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" required>
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required>
-        <button type="submit">Sign In</button>
+
+  <div class="login-card">
+
+    <!-- Lock Icon -->
+    <div class="lock-icon-wrap">
+      <div class="lock-icon-bg">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M17 11H7C5.89543 11 5 11.8954 5 13V19C5 20.1046 5.89543 21 7 21H17C18.1046 21 19 20.1046 19 19V13C19 11.8954 18.1046 11 17 11Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 17C12.5523 17 13 16.5523 13 16C13 15.4477 12.5523 15 12 15C11.4477 15 11 15.4477 11 16C11 16.5523 11.4477 17 12 17Z" fill="currentColor"/>
+          <path d="M8 11V7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7V11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Heading -->
+    <div class="login-heading">
+      <p class="login-title">Sign In</p>
+    </div>
+    <p class="login-subtitle">
+      <span id="hostName"></span>
+    </p>
+
+    <!-- Error Message -->
+    <div class="error-msg" id="errorMsg" role="alert">
+      <svg class="error-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 9V13M12 17H12.01M10.29 3.86L1.82 18C1.64 18.32 1.55 18.68 1.55 19.05C1.55 20.13 2.42 21 3.5 21H20.5C21.58 21 22.45 20.13 22.45 19.05C22.45 18.68 22.36 18.32 22.18 18L13.71 3.86C13.53 3.55 13.28 3.3 12.97 3.13C12.67 2.96 12.33 2.87 11.99 2.87C11.65 2.87 11.31 2.96 11.01 3.13C10.71 3.3 10.46 3.55 10.29 3.86Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Incorrect username or password.
+    </div>
+
+    <!-- Login Form -->
+    <form class="login-form" id="loginForm" method="POST" action="/api/auth/login">
+
+      <div class="field">
+        <label class="field-label" for="username">Username</label>
+        <input
+          class="field-input"
+          type="text"
+          id="username"
+          name="username"
+          autocomplete="username"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          placeholder="username"
+          required
+        >
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="password">Password</label>
+        <input
+          class="field-input"
+          type="password"
+          id="password"
+          name="password"
+          autocomplete="current-password"
+          placeholder="••••••••"
+          required
+        >
+      </div>
+
+      <button class="btn-signin" type="submit">Sign In</button>
+
     </form>
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            var params = new URLSearchParams(window.location.search);
 
-            // Forward the deep-link destination through the login POST.
-            var next = params.get('next') || '/';
-            document.querySelector('form').action =
-                '/api/auth/login?next=' + encodeURIComponent(next);
+    <!-- Footer -->
+    <p class="login-footer">frontdoor</p>
 
-            // Show inline error when the backend redirects back with ?error=1.
-            if (params.get('error') === '1') {
-                document.getElementById('error-msg').style.display = '';
-            }
-        });
-    </script>
+  </div>
+
+  <script>
+    (function () {
+      // Display the current hostname
+      document.getElementById('hostName').textContent = window.location.hostname;
+
+      var params = new URLSearchParams(window.location.search);
+
+      // Forward the deep-link destination through the login POST.
+      var next = params.get('next') || '/';
+      document.getElementById('loginForm').action =
+        '/api/auth/login?next=' + encodeURIComponent(next);
+
+      // Show inline error when the backend redirects back with ?error=1.
+      if (params.get('error') === '1') {
+        document.getElementById('errorMsg').classList.add('visible');
+      }
+    })();
+  </script>
+
 </body>
 </html>
