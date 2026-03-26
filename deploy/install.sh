@@ -146,9 +146,9 @@ $FQDN:443 {
     reverse_proxy localhost:8420
 }
 
-# Short hostname redirect: http://SHORT_HOSTNAME -> https://FQDN
+# Short hostname redirect: http://SHORT_HOSTNAME -> https://FQDN (301 Moved Permanently)
 http://$SHORT_HOSTNAME {
-    redir https://$FQDN{uri} permanent
+    redir https://$FQDN{uri} 301
 }
 
 # Import per-service snippets
@@ -161,9 +161,9 @@ http://$FQDN {
     reverse_proxy localhost:8420
 }
 
-# Short hostname redirect: http://SHORT_HOSTNAME -> http://FQDN
+# Short hostname redirect: http://SHORT_HOSTNAME -> http://FQDN (301 Moved Permanently)
 http://$SHORT_HOSTNAME {
-    redir http://$FQDN{uri} permanent
+    redir http://$FQDN{uri} 301
 }
 
 # Import per-service snippets

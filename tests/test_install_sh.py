@@ -182,6 +182,25 @@ class TestMainCaddyfile:
         # redirect from short hostname to FQDN
         assert "redir" in script_content or "redirect" in script_content.lower()
 
+    def test_short_hostname_redirect_uses_301_not_permanent(self, script_content):
+        """Short-hostname redirect must use explicit 301, not the 'permanent' keyword.
+
+        In Caddy v2, 'redir ... permanent' emits 308 (Permanent Redirect), not 301.
+        The spec requires a 301 (Moved Permanently) redirect.
+        Use the numeric code 'redir ... 301' to be unambiguous.
+        """
+        assert (
+            "redir https://$FQDN{uri} 301" in script_content
+            or "redir http://$FQDN{uri} 301" in script_content
+        ), (
+            "Short-hostname redirect must use numeric '301', not the keyword 'permanent' "
+            "(Caddy v2 'permanent' emits 308, not 301 as required by spec)"
+        )
+        assert "redir https://$FQDN{uri} permanent" not in script_content, (
+            "Replace 'redir ... permanent' with 'redir ... 301' — "
+            "Caddy v2 'permanent' emits 308, spec requires 301"
+        )
+
     def test_caddyfile_imports_conf_d(self, script_content):
         assert "import /etc/caddy/conf.d/*.caddy" in script_content
 
@@ -302,9 +321,9 @@ class TestBehavioralRendering:
             "    reverse_proxy localhost:8420\n"
             "}\n"
             "\n"
-            "# Short hostname redirect\n"
+            "# Short hostname redirect: http://SHORT_HOSTNAME -> https://FQDN (301 Moved Permanently)\n"
             "http://$SHORT_HOSTNAME {\n"
-            "    redir https://$FQDN{uri} permanent\n"
+            "    redir https://$FQDN{uri} 301\n"
             "}\n"
             "\n"
             "import /etc/caddy/conf.d/*.caddy\n"
@@ -327,6 +346,9 @@ class TestBehavioralRendering:
         assert "http://myhost {" in content, "Short hostname block missing"
         assert "redir https://myhost.example.ts.net" in content, (
             "Redirect to FQDN missing"
+        )
+        assert "redir https://myhost.example.ts.net" in content and "301" in content, (
+            "Short-hostname redirect must use explicit 301 status code"
         )
         assert "import /etc/caddy/conf.d/*.caddy" in content, "conf.d import missing"
 
