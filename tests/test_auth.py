@@ -385,7 +385,7 @@ class TestFullAuthFlow:
         assert validate_again.status_code == 401
 
     def test_deep_link_flow(self, auth_client):
-        """Deep link flow preserves absolute next URL through login."""
+        """Deep link flow: absolute next URL is sanitized to '/' by safety check."""
         from urllib.parse import urlencode
 
         # GET validate → 401
@@ -394,19 +394,15 @@ class TestFullAuthFlow:
 
         next_url = "https://monad.tail09557f.ts.net:8443/files"
 
-        # POST login with next=full absolute URL → 303 with location = full URL
-        # Patch _safe_next_url to allow the absolute URL (trusted deep-link scenario)
+        # POST login with next=absolute URL → 303; safety check rejects absolute URL → location = "/"
         login_url = f"/api/auth/login?{urlencode({'next': next_url})}"
-        with (
-            patch("frontdoor.routes.auth.authenticate_pam", return_value=True),
-            patch("frontdoor.routes.auth._safe_next_url", return_value=next_url),
-        ):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
             login_response = auth_client.post(
                 login_url,
                 data={"username": "testuser", "password": "goodpass"},
             )
         assert login_response.status_code == 303
-        assert login_response.headers.get("location") == next_url
+        assert login_response.headers.get("location") == "/"
 
         # Extract cookie from set-cookie header
         set_cookie_header = login_response.headers.get("set-cookie", "")
