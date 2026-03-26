@@ -218,8 +218,10 @@ class TestServiceManagement:
     def test_enables_caddy(self, script_content):
         assert "systemctl enable caddy" in script_content
 
-    def test_reloads_caddy(self, script_content):
-        assert "systemctl reload caddy" in script_content
+    def test_restarts_caddy(self, script_content):
+        # restart handles both fresh-install (inactive) and running cases;
+        # reload alone would fail on an inactive service under set -euo pipefail
+        assert "systemctl restart caddy" in script_content
 
 
 class TestCompletionMessage:
@@ -356,6 +358,39 @@ class TestSecretDeliveryDesign:
         assert (
             "Environment=FRONTDOOR_SECRET_KEY=FRONTDOOR_SECRET" not in service_content
         ), "Secret placeholder must not appear in Environment= -- use EnvironmentFile="
+
+
+class TestInstallSequencing:
+    """Regression tests for fresh-install sequencing failures."""
+
+    def test_caddy_installed_before_cert_key_ownership(self, script_content):
+        """Caddy must be installed BEFORE chown root:caddy is applied to the cert key.
+
+        On a fresh host, the 'caddy' group does not exist until Caddy is installed.
+        Applying 'chown root:caddy' before that will fail under set -euo pipefail.
+        """
+        caddy_install_pos = script_content.find("command -v caddy")
+        cert_chown_pos = script_content.find("chown root:caddy")
+        assert caddy_install_pos != -1, "Caddy install check not found in script"
+        assert cert_chown_pos != -1, "chown root:caddy not found in script"
+        assert caddy_install_pos < cert_chown_pos, (
+            "Caddy must be installed BEFORE 'chown root:caddy' is applied to the cert key. "
+            f"Caddy install at char pos {caddy_install_pos}, "
+            f"cert chown at char pos {cert_chown_pos}."
+        )
+
+    def test_caddy_service_restarted_not_just_reloaded(self, script_content):
+        """Caddy must be restarted (not just reloaded) to handle the fresh-install case.
+
+        'systemctl enable caddy' does NOT start the service if it is inactive.
+        'systemctl reload caddy' fails on an inactive service under set -euo pipefail.
+        'systemctl restart caddy' handles both the stopped and running cases.
+        """
+        assert "systemctl restart caddy" in script_content, (
+            "Caddy must use 'systemctl restart caddy' (not just 'reload') to handle "
+            "fresh-install where the service is not yet running. "
+            "'reload' fails on an inactive service."
+        )
 
 
 class TestFqdnValidation:

@@ -69,6 +69,16 @@ python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install --quiet "$INSTALL_DIR"
 
+# --- Install Caddy ---
+# Install before the Tailscale cert section: the cert key requires root:caddy
+# ownership, and the 'caddy' group only exists after Caddy is installed.
+if ! command -v caddy &>/dev/null; then
+    echo "Installing Caddy..."
+    apt-get update -qq && apt-get install -y -qq caddy
+else
+    echo "Caddy already installed"
+fi
+
 # --- Try to generate Tailscale cert (requires paid plan) ---
 echo "Attempting Tailscale certificate generation..."
 mkdir -p "$CERT_DIR"
@@ -80,14 +90,6 @@ if tailscale cert --cert-file "$CERT_PATH" --key-file "$KEY_PATH" "$FQDN" 2>/dev
 else
     echo "  Certificate unavailable (free Tailscale plan) -- using HTTP"
     echo "  Note: Tailscale encrypts traffic between devices, so HTTP is safe on your tailnet"
-fi
-
-# --- Install Caddy ---
-if ! command -v caddy &>/dev/null; then
-    echo "Installing Caddy..."
-    apt-get update -qq && apt-get install -y -qq caddy
-else
-    echo "Caddy already installed"
 fi
 
 # --- Create conf.d directory ---
@@ -187,7 +189,7 @@ systemctl daemon-reload
 systemctl enable frontdoor
 systemctl restart frontdoor
 systemctl enable caddy
-systemctl reload caddy
+systemctl restart caddy
 
 echo ""
 echo "=== Installation complete ==="
