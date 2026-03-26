@@ -1,7 +1,6 @@
 """Tests for the login page at static/login.html."""
 
 import frontdoor.main as main_module
-import pytest
 from starlette.testclient import TestClient
 
 from frontdoor.main import app
@@ -39,7 +38,9 @@ class TestLoginHtmlFile:
         content = LOGIN_HTML.read_text()
         assert "--bg" in content, "login.html must have --bg CSS token"
         assert "--elevated" in content, "login.html must have --elevated CSS token"
-        assert "--tint" in content, "login.html must have --tint CSS token (Apple HIG blue)"
+        assert "--tint" in content, (
+            "login.html must have --tint CSS token (Apple HIG blue)"
+        )
         assert "#007AFF" in content, "login.html must have Apple HIG tint color #007AFF"
 
     def test_has_apple_hig_design_tokens_dark_mode(self):
@@ -96,12 +97,12 @@ class TestLoginHtmlFile:
     def test_has_username_field_with_proper_autocomplete(self):
         """Username field must have autocomplete='username' and autocapitalize='none'."""
         content = LOGIN_HTML.read_text()
-        assert 'autocomplete="username"' in content or "autocomplete='username'" in content, (
-            "login.html username field must have autocomplete='username'"
-        )
-        assert 'autocapitalize="none"' in content or "autocapitalize='none'" in content, (
-            "login.html username field must have autocapitalize='none' for mobile"
-        )
+        assert (
+            'autocomplete="username"' in content or "autocomplete='username'" in content
+        ), "login.html username field must have autocomplete='username'"
+        assert (
+            'autocapitalize="none"' in content or "autocapitalize='none'" in content
+        ), "login.html username field must have autocapitalize='none' for mobile"
 
     def test_has_password_field(self):
         """File must have a password input field."""
@@ -135,9 +136,9 @@ class TestLoginHtmlFile:
     def test_error_shown_with_query_param_error_1(self):
         """Error message must be shown when URL has ?error=1."""
         content = LOGIN_HTML.read_text()
-        assert "error" in content and ("=== '1'" in content or "=== \"1\"" in content or "get('error')" in content), (
-            "login.html must check URL for ?error=1 to show the error message"
-        )
+        assert "error" in content and (
+            "=== '1'" in content or '=== "1"' in content or "get('error')" in content
+        ), "login.html must check URL for ?error=1 to show the error message"
 
     def test_form_posts_to_api_auth_login(self):
         """Form must POST to /api/auth/login with next param."""
@@ -145,20 +146,18 @@ class TestLoginHtmlFile:
         assert "/api/auth/login" in content, (
             "login.html form must target /api/auth/login"
         )
-        assert "method=\"POST\"" in content or "method='POST'" in content, (
+        assert 'method="POST"' in content or "method='POST'" in content, (
             "login.html form must use POST method"
         )
 
     def test_js_sets_form_action_with_next_param(self):
         """JS must set form action to /api/auth/login?next=<encoded value>."""
         content = LOGIN_HTML.read_text()
-        assert "next" in content, (
-            "login.html JS must read 'next' query param"
-        )
+        assert "next" in content, "login.html JS must read 'next' query param"
         assert "encodeURIComponent" in content, (
             "login.html JS must use encodeURIComponent for the next param"
         )
-        assert "get('next')" in content or "get(\"next\")" in content, (
+        assert "get('next')" in content or 'get("next")' in content, (
             "login.html JS must use URLSearchParams.get('next')"
         )
 
