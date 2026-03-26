@@ -368,18 +368,19 @@ class TestFullAuthFlow:
         set_cookie_header = login_response.headers.get("set-cookie", "")
         cookie_value = set_cookie_header.split("frontdoor_session=")[1].split(";")[0]
 
-        # GET /api/auth/validate with the cookie → 200 + X-Authenticated-User
-        validate_response = auth_client.get(
-            "/api/auth/validate",
-            cookies={"frontdoor_session": cookie_value},
-        )
+        # Set cookie on client
+        auth_client.cookies.set("frontdoor_session", cookie_value)
+
+        # GET /api/auth/validate → 200 + X-Authenticated-User
+        validate_response = auth_client.get("/api/auth/validate")
         assert validate_response.status_code == 200
         assert validate_response.headers.get("x-authenticated-user") == "testuser"
 
         # POST logout
         auth_client.post("/api/auth/logout")
 
-        # Clear client cookies (don't pass cookie) → validate returns 401
+        # Clear client cookies → validate returns 401
+        auth_client.cookies.clear()
         validate_again = auth_client.get("/api/auth/validate")
         assert validate_again.status_code == 401
 
@@ -419,9 +420,9 @@ class TestFullAuthFlow:
         set_cookie_header = login_response.headers.get("set-cookie", "")
         cookie_value = set_cookie_header.split("frontdoor_session=")[1].split(";")[0]
 
-        # GET validate with cookie → 200
-        validate_response = auth_client.get(
-            "/api/auth/validate",
-            cookies={"frontdoor_session": cookie_value},
-        )
+        # Set cookie on client
+        auth_client.cookies.set("frontdoor_session", cookie_value)
+
+        # GET validate → 200
+        validate_response = auth_client.get("/api/auth/validate")
         assert validate_response.status_code == 200
