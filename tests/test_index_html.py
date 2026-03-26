@@ -1,7 +1,5 @@
 """Tests for the main portal UI at static/index.html."""
 
-from pathlib import Path
-
 import frontdoor.main as main_module
 import pytest
 from starlette.testclient import TestClient
@@ -76,9 +74,7 @@ class TestIndexHtmlFile:
         assert "backdrop-filter" in content, (
             "index.html must have glassmorphic header with backdrop-filter"
         )
-        assert "header" in content.lower(), (
-            "index.html must have a header element"
-        )
+        assert "header" in content.lower(), "index.html must have a header element"
 
     def test_has_status_dots(self):
         """File must have status dot CSS for up/down states."""
@@ -123,9 +119,7 @@ class TestIndexHtmlFile:
         assert "fonts.googleapis.com" in content, (
             "index.html must load fonts from Google Fonts"
         )
-        assert "Inter" in content, (
-            "index.html must use Inter font"
-        )
+        assert "Inter" in content, "index.html must use Inter font"
         assert "JetBrains+Mono" in content or "JetBrains Mono" in content, (
             "index.html must use JetBrains Mono font"
         )

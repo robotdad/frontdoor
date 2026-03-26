@@ -398,25 +398,6 @@
       border: 0.5px solid var(--separator);
     }
 
-    /* ─── Loading / Error states ───────────────────────────────────────────── */
-    .loading-state {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: var(--space-xl);
-      color: var(--label-tertiary);
-      font-size: 13px;
-    }
-
-    .error-state {
-      padding: var(--space-md);
-      background: rgba(255, 59, 48, 0.08);
-      border-radius: var(--radius-md);
-      color: var(--red);
-      font-size: 13px;
-      border: 0.5px solid rgba(255, 59, 48, 0.20);
-    }
-
     /* ─── Empty / Footer spacer ─────────────────────────────────────────────── */
     .page-footer {
       margin-top: var(--space-xl);
@@ -543,28 +524,17 @@
     // ─── App component ─────────────────────────────────────────────────────────
     function App() {
       const [data, setData] = useState(null);
-      const [error, setError] = useState(null);
-      const [loading, setLoading] = useState(true);
-      const [hostname, setHostname] = useState(window.location.hostname);
+      const [hostname] = useState(window.location.hostname);
 
       const fetchServices = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-          const resp = await fetch('/api/services');
-          if (!resp.ok) {
-            if (resp.status === 401 || resp.status === 403) {
-              window.location.href = '/login.html';
-              return;
-            }
-            throw new Error(`HTTP ${resp.status}`);
-          }
+        const resp = await fetch('/api/services');
+        if (resp.status === 401 || resp.status === 403) {
+          window.location.href = '/login.html';
+          return;
+        }
+        if (resp.ok) {
           const json = await resp.json();
           setData(json);
-        } catch (err) {
-          setError(err.message || 'Failed to load services');
-        } finally {
-          setLoading(false);
         }
       }, []);
 
@@ -585,7 +555,6 @@
               class="btn-refresh"
               title="Refresh"
               onClick=${fetchServices}
-              disabled=${loading}
             >
               <i class="ph-bold ph-arrow-clockwise"></i>
             </button>
@@ -603,21 +572,11 @@
             <span class="section-label">Services</span>
           </div>
 
-          ${loading && html`
-            <div class="loading-state">Loading services…</div>
-          `}
-
-          ${error && html`
-            <div class="error-state">Error: ${error}</div>
-          `}
-
-          ${!loading && !error && html`
-            <div class="service-grid">
+          <div class="service-grid">
               ${services.map(svc => html`<${ServiceCard} key=${svc.url || svc.name} service=${svc} />`)}
             </div>
-          `}
 
-          ${!loading && !error && unregistered.length > 0 && html`
+          ${unregistered.length > 0 && html`
             <div class="section-header">
               <span class="section-label">Also Running</span>
               <span class="section-note">Not configured in Caddy</span>
