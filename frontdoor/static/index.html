@@ -528,10 +528,6 @@
 
       const fetchServices = useCallback(async () => {
         const resp = await fetch('/api/services');
-        if (resp.status === 401 || resp.status === 403) {
-          window.location.href = '/login.html';
-          return;
-        }
         if (resp.ok) {
           const json = await resp.json();
           setData(json);
