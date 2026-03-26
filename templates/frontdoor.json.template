@@ -1,5 +1,5 @@
 {
-    "display_name": "APP_DISPLAY_NAME",
+    "name": "APP_DISPLAY_NAME",
     "description": "APP_DESCRIPTION",
     "icon": "APP_ICON"
 }

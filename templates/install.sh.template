@@ -35,18 +35,11 @@ echo "  FQDN: $FQDN"
 SHORT_HOSTNAME=$(hostname -s)
 echo "  Short hostname: $SHORT_HOSTNAME"
 
-# Validate FQDN and SHORT_HOSTNAME before use in config generation
-if [ -z "$FQDN" ] || [[ "$FQDN" =~ [^a-zA-Z0-9.\-] ]]; then
-    echo "ERROR: Invalid or empty FQDN detected: '$FQDN'" >&2
-    exit 1
-fi
-if [ -z "$SHORT_HOSTNAME" ] || [[ "$SHORT_HOSTNAME" =~ [^a-zA-Z0-9\-] ]]; then
-    echo "ERROR: Invalid or empty SHORT_HOSTNAME detected: '$SHORT_HOSTNAME'" >&2
-    exit 1
-fi
-
 CERT_PATH="$CERT_DIR/$FQDN.crt"
 KEY_PATH="$CERT_DIR/$FQDN.key"
+if [ -f "$CERT_PATH" ] && [ -f "$KEY_PATH" ]; then
+    HTTPS=true
+fi
 
 # --- Install application ---
 echo "Installing application to $INSTALL_DIR..."
@@ -65,35 +58,9 @@ python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install --quiet "$INSTALL_DIR"
 
-# --- Install Caddy if needed ---
-if ! command -v caddy &>/dev/null; then
-    echo "Installing Caddy..."
-    apt-get update -qq && apt-get install -y -qq caddy
-else
-    echo "Caddy already installed"
-fi
-
-# --- Try to generate Tailscale cert ---
-echo "Attempting Tailscale certificate generation..."
-mkdir -p "$CERT_DIR"
-if tailscale cert --cert-file "$CERT_PATH" --key-file "$KEY_PATH" "$FQDN" 2>/dev/null; then
-    echo "  Certificate generated (HTTPS enabled)"
-    chown root:caddy "$KEY_PATH"
-    chmod 640 "$KEY_PATH"
-    HTTPS=true
-else
-    echo "  Certificate unavailable — using HTTP"
-    echo "  Note: Tailscale encrypts traffic between devices, so HTTP is safe on your tailnet"
-fi
-
 # --- Create Caddy conf.d directory ---
 echo "Creating Caddy conf.d directory..."
 mkdir -p /etc/caddy/conf.d
-
-# --- Create manifests directory ---
-echo "Creating manifests directory..."
-mkdir -p /opt/frontdoor/manifests
-chown "$USER:$USER" /opt/frontdoor/manifests
 
 # --- Write Caddy snippet ---
 echo "Writing Caddy snippet..."
@@ -142,17 +109,7 @@ echo "Starting services..."
 systemctl daemon-reload
 systemctl enable "${APP_SLUG}"
 systemctl restart "${APP_SLUG}"
-systemctl enable caddy
-systemctl restart caddy
+systemctl reload caddy
 
 echo ""
 echo "=== Installation complete ==="
-if [ "$HTTPS" = true ]; then
-    echo "${APP_DISPLAY_NAME} is running at: https://$FQDN:$APP_PORT"
-else
-    echo "${APP_DISPLAY_NAME} is running at: http://$FQDN:$APP_PORT"
-fi
-echo ""
-echo "To check status:"
-echo "  systemctl status ${APP_SLUG}"
-echo "  systemctl status caddy"

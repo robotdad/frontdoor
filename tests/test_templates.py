@@ -231,9 +231,7 @@ class TestInstallShTemplate:
 
     def test_has_enable_and_start_services(self, content):
         assert "systemctl enable" in content
-        assert "systemctl" in content and (
-            "restart" in content or "start" in content
-        )
+        assert "systemctl" in content and ("restart" in content or "start" in content)
 
     def test_references_ports_py(self, content):
         # The install script template should reference ports.py for port allocation guidance
@@ -283,6 +281,11 @@ class TestFrontdoorJsonTemplate:
         assert "}" in content
         assert ":" in content
 
+    def test_uses_name_key_not_display_name(self, content):
+        # Spec requires "name" as the key, not "display_name"
+        assert '"name"' in content
+        assert '"display_name"' not in content
+
 
 # ---------------------------------------------------------------------------
 # signout-link.html.template
@@ -313,3 +316,19 @@ class TestSignoutLinkTemplate:
         # Should have a comment explaining it signs out of all apps
         assert "<!--" in content
         assert "sign" in content.lower() or "logout" in content.lower()
+
+    def test_form_method_is_uppercase_POST(self, content):
+        # Spec requires method="POST" (uppercase)
+        assert 'method="POST"' in content
+
+    def test_form_has_display_inline_style(self, content):
+        # Spec requires style="display:inline"
+        assert 'style="display:inline"' in content
+
+    def test_button_has_signout_link_class(self, content):
+        # Spec requires class="signout-link" on the button
+        assert 'class="signout-link"' in content
+
+    def test_button_text_is_Sign_Out(self, content):
+        # Spec requires button text "Sign Out" (capital O)
+        assert "Sign Out" in content
