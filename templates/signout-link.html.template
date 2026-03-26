@@ -1,0 +1,8 @@
+<!-- Sign-out link template for apps protected by frontdoor.
+     Replace FRONTDOOR_FQDN with the actual frontdoor hostname before deploying.
+     Posting to this endpoint signs the user out of ALL apps on the frontdoor —
+     the session cookie is cleared and the user is redirected to the login page.
+     Include this snippet in your app's navigation or settings page. -->
+<form method="post" action="https://FRONTDOOR_FQDN/api/auth/logout">
+    <button type="submit">Sign out</button>
+</form>

@@ -1,0 +1,14 @@
+# Caddy site block for APPNAME_DISPLAY_NAME
+# Replace APPNAME_FQDN, APPNAME_PORT, APPNAME_INTERNAL_PORT, CERT_PATH, KEY_PATH
+# before deploying.
+
+APPNAME_FQDN:APPNAME_PORT {
+    tls CERT_PATH KEY_PATH
+
+    forward_auth localhost:8420 {
+        uri /api/auth/validate
+        copy_headers X-Authenticated-User
+    }
+
+    reverse_proxy localhost:APPNAME_INTERNAL_PORT
+}
