@@ -207,6 +207,13 @@
       background: var(--fill);
     }
 
+    /* Visible keyboard focus ring — replaces removed outline */
+    .btn-refresh:focus-visible,
+    .btn-signout:focus-visible {
+      outline: 2px solid var(--tint);
+      outline-offset: 2px;
+    }
+
     /* ─── Main Content ─────────────────────────────────────────────────────── */
     .main {
       padding: 72px var(--space-lg) var(--space-xl);
@@ -398,6 +405,26 @@
       border: 0.5px solid var(--separator);
     }
 
+    /* ─── Error Banner ─────────────────────────────────────────────────────────── */
+    .error-banner {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm) var(--space-md);
+      background: rgba(255, 59, 48, 0.10);
+      border: 0.5px solid rgba(255, 59, 48, 0.25);
+      border-radius: var(--radius-md);
+      color: var(--red);
+      font-size: 14px;
+      margin-top: var(--space-md);
+      margin-bottom: var(--space-sm);
+    }
+
+    .error-banner i {
+      flex-shrink: 0;
+      font-size: 16px;
+    }
+
     /* ─── Empty / Footer spacer ─────────────────────────────────────────────── */
     .page-footer {
       margin-top: var(--space-xl);
@@ -524,13 +551,21 @@
     // ─── App component ─────────────────────────────────────────────────────────
     function App() {
       const [data, setData] = useState(null);
-      const [hostname] = useState(window.location.hostname);
+      const [error, setError] = useState(null);
+      const hostname = window.location.hostname;
 
       const fetchServices = useCallback(async () => {
-        const resp = await fetch('/api/services');
-        if (resp.ok) {
-          const json = await resp.json();
-          setData(json);
+        setError(null);
+        try {
+          const resp = await fetch('/api/services');
+          if (resp.ok) {
+            const json = await resp.json();
+            setData(json);
+          } else {
+            setError(`Could not load services (${resp.status} ${resp.statusText})`);
+          }
+        } catch (err) {
+          setError('Network error \u2014 could not reach the server.');
         }
       }, []);
 
@@ -563,6 +598,13 @@
         </header>
 
         <main class="main">
+
+          ${error && html`
+            <div class="error-banner">
+              <i class="ph-bold ph-warning-circle"></i>
+              ${error}
+            </div>
+          `}
 
           <div class="section-header">
             <span class="section-label">Services</span>

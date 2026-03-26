@@ -148,6 +148,27 @@ class TestIndexHtmlFile:
             "index.html header must display the hostname"
         )
 
+    def test_has_fetch_error_handling(self):
+        """fetchServices must use try/catch and track error state for visible failures."""
+        content = INDEX_HTML.read_text()
+        assert "try {" in content or "try{" in content, (
+            "index.html fetchServices must use try/catch to handle network errors"
+        )
+        assert "catch" in content, (
+            "index.html fetchServices must catch errors to prevent silent failures"
+        )
+        assert "setError" in content, (
+            "index.html must track error state (setError) so fetch failures are visible"
+        )
+
+    def test_has_focus_visible_for_buttons(self):
+        """Header buttons must have :focus-visible CSS for visible keyboard focus."""
+        content = INDEX_HTML.read_text()
+        assert ":focus-visible" in content, (
+            "index.html must have :focus-visible CSS so keyboard focus is visible "
+            "on refresh and sign-out buttons (outline: none alone removes it)"
+        )
+
 
 class TestIndexHtmlServed:
     """Verify FastAPI serves index.html at / (requires login)."""
