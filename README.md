@@ -7,6 +7,7 @@
 - **Discovers services** from Caddy virtual host configs in `/etc/caddy/conf.d/` and TCP probing of known ports — no manual registration required for most apps.
 - **Shows status** with green/red dots: green means the upstream port is responding, red means it's down.
 - **Shared auth via domain cookie** — one login covers all apps on the host. frontdoor sets a `frontdoor_session` cookie on the root domain; apps that check this cookie get authentication for free.
+- **Authenticated identity forwarding** — Caddy's `forward_auth` validates every request through frontdoor, then injects the `X-Authenticated-User` header into the proxied request so downstream apps know who's calling without implementing their own auth.
 - **Detects unregistered processes** — TCP probe of the 8440+ port range surfaces processes that are listening but have no Caddy config yet, so nothing hides from the dashboard.
 
 ## Install
@@ -80,6 +81,25 @@ amplifier run --bundle git+https://github.com/robotdad/frontdoor@main \
 ```bash
 amplifier bundle refresh frontdoor
 ```
+
+## Downstream app integration
+
+Apps behind frontdoor receive the authenticated username via the `X-Authenticated-User` request header, injected by Caddy's `forward_auth`. No app-level auth needed.
+
+**Reading the header:**
+```python
+user = request.headers.get("X-Authenticated-User", "unknown")
+```
+
+**Required Caddy snippet** (in `/etc/caddy/conf.d/<app>.caddy`):
+```caddy
+forward_auth localhost:8420 {
+    uri /api/auth/validate
+    copy_headers X-Authenticated-User
+}
+```
+
+For the full integration guide (ports, manifests, sign-out, templates), see the `web-app-setup` skill.
 
 ## Status commands
 

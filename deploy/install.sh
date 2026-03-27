@@ -112,7 +112,7 @@ $FQDN:$FILEBROWSER_NEW_PORT {
 
     forward_auth localhost:8420 {
         uri /api/auth/validate
-        copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+        copy_headers X-Authenticated-User
     }
 
     reverse_proxy localhost:58080
@@ -123,7 +123,7 @@ EOF
 http://$FQDN:$FILEBROWSER_NEW_PORT {
     forward_auth localhost:8420 {
         uri /api/auth/validate
-        copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+        copy_headers X-Authenticated-User
     }
 
     reverse_proxy localhost:58080

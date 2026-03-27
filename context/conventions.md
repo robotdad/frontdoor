@@ -8,6 +8,27 @@ All apps are served over HTTPS through Caddy acting as a reverse proxy. TLS cert
 
 A shared session cookie named `frontdoor_session` is set on the root domain (e.g., `monad.tail…ts.net`). Any app on that host can read this cookie to verify that the user has already authenticated through frontdoor. Apps that want to participate in shared auth should check for `frontdoor_session` and redirect to frontdoor's login if absent.
 
+### Authenticated User Identity via `X-Authenticated-User` Header
+
+When Caddy's `forward_auth` validates a request through frontdoor, the authenticated username is forwarded to the downstream app via the **`X-Authenticated-User`** request header. This is the canonical header name used across all frontdoor-managed apps.
+
+Downstream apps read it like this:
+
+```python
+user = request.headers.get("X-Authenticated-User", "unknown")
+```
+
+The Caddy snippet that enables this:
+
+```caddy
+forward_auth localhost:8420 {
+    uri /api/auth/validate
+    copy_headers X-Authenticated-User
+}
+```
+
+Apps behind `forward_auth` do not need their own login flow — every request that reaches them has already been authenticated. The header provides the verified identity.
+
 ### Service Discovery via `conf.d/` + Manifests
 
 frontdoor discovers running services two ways:
