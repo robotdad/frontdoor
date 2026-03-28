@@ -1,12 +1,20 @@
 ## Conventions
 
-### HTTPS via Caddy + Tailscale
+### HTTPS via Caddy + TLS Certificates
 
-All apps are served over HTTPS through Caddy acting as a reverse proxy. TLS certificates come from Tailscale's built-in cert infrastructure (`tailscale cert`). Caddy virtual host configs live in `/etc/caddy/conf.d/` and are auto-included by the main `Caddyfile`.
+All apps are served over HTTPS through Caddy acting as a reverse proxy. Caddy virtual host configs live in `/etc/caddy/conf.d/` and are auto-included by the main `Caddyfile`. TLS is configured via a three-tier priority:
+
+1. **Tailscale certs** (recommended) — obtained via `tailscale cert`, stored in `/etc/ssl/tailscale/`, auto-renewed. Tailscale is recommended but not required.
+2. **Self-signed certs** (fallback) — stored in `/etc/ssl/self-signed/`, generated with 10-year validity when Tailscale is unavailable.
+3. **Plain HTTP** (ultimate fallback) — only acceptable on a Tailscale tailnet or other trusted LAN where traffic is otherwise protected.
+
+The Caddy `tls` directive references whichever cert paths exist at runtime.
 
 ### Shared Auth via `frontdoor_session` Cookie
 
 A shared session cookie named `frontdoor_session` is set on the root domain (e.g., `monad.tail…ts.net`). Any app on that host can read this cookie to verify that the user has already authenticated through frontdoor. Apps that want to participate in shared auth should check for `frontdoor_session` and redirect to frontdoor's login if absent.
+
+`FRONTDOOR_SECURE_COOKIES` is `true` when HTTPS is active (both Tailscale and self-signed certs qualify), and `false` only for plain HTTP.
 
 ### Authenticated User Identity via `X-Authenticated-User` Header
 
