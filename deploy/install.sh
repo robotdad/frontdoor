@@ -112,7 +112,7 @@ else
         HTTPS=true
     else
         echo "  Tier 3: TLS unavailable -- falling back to HTTP"
-        echo "  Note: Tailscale encrypts traffic between devices, so HTTP is safe on your tailnet"
+        echo "  Note: HTTP traffic is unencrypted. Only use this on a trusted LAN or Tailscale tailnet."
     fi
 fi
 

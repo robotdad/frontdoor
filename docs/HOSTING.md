@@ -84,7 +84,7 @@ Short checklist — do all six steps:
 5. **Write a Caddy snippet** — create `/etc/caddy/conf.d/<appname>.caddy` with `forward_auth` and `reverse_proxy` directives (use the `web-app-setup` skill or the `app.caddy.template` in this repo).
 6. **Drop a manifest** (optional) — add `/opt/frontdoor/manifests/<appname>.json` to customize the dashboard display name, description, and icon.
 
-**amplifierd note:** If your app is built on `amplifierd`, set `AMPLIFIERD_TRUST_PROXY_AUTH=true` in its environment to enable header-based identity without a separate login flow.
+**amplifierd note:** If your app is built on `amplifierd`, set `AMPLIFIERD_TRUST_PROXY_AUTH=true` in its environment to enable header-based identity without a separate login flow. For proxy trust configuration details, see the [amplifierd HOSTING.md](https://github.com/microsoft/amplifierd/blob/main/docs/HOSTING.md).
 
 ---
 

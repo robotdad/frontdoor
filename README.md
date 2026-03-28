@@ -1,6 +1,6 @@
 # frontdoor
 
-**frontdoor** is a developer-host dashboard and shared authentication gateway. It runs on your Tailscale-connected machine and gives you a single HTTPS URL that shows all your locally-running web apps in one place.
+**frontdoor** is a developer-host dashboard and shared authentication gateway. It runs on your Linux machine and provides a single authenticated entry point that shows all your locally-running web apps in one place.
 
 ## What frontdoor does
 
@@ -35,7 +35,7 @@ The `frontdoor` bundle gives Amplifier the knowledge to inventory your host, pro
   uv tool install git+https://github.com/microsoft/amplifier
   amplifier init   # configure your AI provider if you haven't yet
   ```
-- Target host running **Tailscale** with **Caddy** installed
+- Target host with **Caddy** installed. **Tailscale** is recommended for automatic cert provisioning and FQDN detection but is not required.
 
 ### Install the Bundle
 

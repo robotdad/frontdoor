@@ -344,12 +344,14 @@ netstat -an | awk '/tcp.*127\.0\.0\.1.*LISTEN/{print $4}' | sort   # macOS
 
 When frontdoor is deployed, replace the basic `reverse_proxy` snippet with one that validates every request through frontdoor's auth endpoint before proxying.
 
-The `forward_auth` block **must** appear before `reverse_proxy` and **must** include `copy_headers X-Authenticated-User` so the downstream app receives the verified identity:
+The `forward_auth` block **must** appear before `reverse_proxy` and **must** include `copy_headers X-Authenticated-User` so the downstream app receives the verified identity.
+
+`$CERT_PATH` and `$KEY_PATH` were established in Phase 1 — they point to `/etc/ssl/tailscale/` (Option A) or `/etc/ssl/self-signed/` (Option B) depending on what was detected. If no certs are available (Option C), omit the `tls` directive and use a plain `http://` block instead.
 
 ```caddy
 # /etc/caddy/conf.d/<APPNAME>.caddy
 <FQDN>:<PORT> {
-    tls /etc/ssl/tailscale/<FQDN>.crt /etc/ssl/tailscale/<FQDN>.key
+    tls <CERT_PATH> <KEY_PATH>  # Paths from Phase 1: /etc/ssl/tailscale/ or /etc/ssl/self-signed/
 
     forward_auth localhost:8420 {
         uri /api/auth/validate
