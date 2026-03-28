@@ -9,7 +9,6 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # When run via sudo, whoami returns root. Use SUDO_USER to get the real user.
 USER="${SUDO_USER:-$(whoami)}"
 INSTALL_DIR="/opt/frontdoor"
-CERT_DIR="/etc/ssl/tailscale"
 FILEBROWSER_NEW_PORT=8447
 HTTPS=false
 
@@ -43,9 +42,6 @@ if [ -z "$SHORT_HOSTNAME" ] || [[ "$SHORT_HOSTNAME" =~ [^a-zA-Z0-9\-] ]]; then
     echo "ERROR: Invalid or empty SHORT_HOSTNAME detected: '$SHORT_HOSTNAME'" >&2
     exit 1
 fi
-
-CERT_PATH="$CERT_DIR/$FQDN.crt"
-KEY_PATH="$CERT_DIR/$FQDN.key"
 
 # --- Generate secret key (idempotent: read from file if exists) ---
 echo "Setting up secret key..."
@@ -92,17 +88,35 @@ else
     echo "Caddy already installed"
 fi
 
-# --- Try to generate Tailscale cert (requires paid plan) ---
-echo "Attempting Tailscale certificate generation..."
+# --- Three-tier TLS provisioning ---
+# Tier 1: Tailscale cert (requires paid plan)
+# Tier 2: Self-signed cert (HTTPS with browser warning)
+# Tier 3: HTTP fallback (Tailscale encrypts in transit)
+echo "Attempting TLS certificate provisioning..."
+CERT_DIR="/etc/ssl/tailscale"
+CERT_PATH="$CERT_DIR/$FQDN.crt"
+KEY_PATH="$CERT_DIR/$FQDN.key"
 mkdir -p "$CERT_DIR"
-if tailscale cert --cert-file "$CERT_PATH" --key-file "$KEY_PATH" "$FQDN" 2>/dev/null; then
-    echo "  Certificate generated (HTTPS enabled)"
+if command -v tailscale &>/dev/null && tailscale cert --cert-file "$CERT_PATH" --key-file "$KEY_PATH" "$FQDN" 2>/dev/null; then
+    echo "  Tier 1: Tailscale certificate obtained (HTTPS enabled)"
     chown root:caddy "$KEY_PATH"
     chmod 640 "$KEY_PATH"
     HTTPS=true
 else
-    echo "  Certificate unavailable (free Tailscale plan) -- using HTTP"
-    echo "  Note: Tailscale encrypts traffic between devices, so HTTP is safe on your tailnet"
+    CERT_DIR="/etc/ssl/self-signed"
+    CERT_PATH="/etc/ssl/self-signed/$FQDN.crt"
+    KEY_PATH="/etc/ssl/self-signed/$FQDN.key"
+    mkdir -p "$CERT_DIR"
+    if openssl req -x509 -newkey rsa:2048 -days 3650 -nodes -subj "/CN=$FQDN" \
+        -keyout "$KEY_PATH" -out "$CERT_PATH" 2>/dev/null; then
+        echo "  Tier 2: Self-signed certificate generated (HTTPS enabled)"
+        chown root:caddy "$KEY_PATH"
+        chmod 640 "$KEY_PATH"
+        HTTPS=true
+    else
+        echo "  Tier 3: TLS unavailable -- falling back to HTTP"
+        echo "  Note: Tailscale encrypts traffic between devices, so HTTP is safe on your tailnet"
+    fi
 fi
 
 # --- Create conf.d directory ---
