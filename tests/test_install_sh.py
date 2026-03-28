@@ -47,8 +47,8 @@ class TestEnvironmentDetection:
     def test_has_install_dir_opt_frontdoor(self, script_content):
         assert 'INSTALL_DIR="/opt/frontdoor"' in script_content
 
-    def test_has_cert_dir(self, script_content):
-        assert 'CERT_DIR="/etc/ssl/tailscale"' in script_content
+    def test_has_default_cert_dir(self, script_content):
+        assert "/etc/ssl/tailscale" in script_content
 
     def test_has_filebrowser_new_port(self, script_content):
         assert "FILEBROWSER_NEW_PORT=8447" in script_content
@@ -123,19 +123,37 @@ class TestAppInstall:
         assert ".venv/bin/pip" in script_content or "pip install" in script_content
 
 
-class TestTailscaleCert:
-    def test_tries_tailscale_cert(self, script_content):
+class TestThreeTierTls:
+    def test_tries_tailscale_cert_first(self, script_content):
+        """Script should attempt Tailscale cert as the first TLS option."""
         assert "tailscale cert" in script_content
 
-    def test_sets_https_true_on_success(self, script_content):
-        assert "HTTPS=true" in script_content
+    def test_generates_self_signed_cert_on_tailscale_failure(self, script_content):
+        """Script must generate a self-signed cert when Tailscale cert fails."""
+        assert "openssl req" in script_content
+        assert "x509" in script_content
+        assert "/etc/ssl/self-signed/" in script_content
+
+    def test_self_signed_cert_uses_fqdn_as_cn(self, script_content):
+        """Self-signed cert CN must be set to the FQDN."""
+        assert "/CN=$FQDN" in script_content
+
+    def test_self_signed_cert_permissions(self, script_content):
+        """Self-signed cert files must have correct ownership and permissions."""
+        assert "chown root:caddy" in script_content
+        assert "chmod 640" in script_content
 
     def test_falls_back_to_http(self, script_content):
+        """Script falls back to HTTP when all TLS options fail."""
         assert "HTTPS=false" in script_content
 
-    def test_fallback_message_mentions_tailscale(self, script_content):
-        # Should have an informative message about HTTP fallback
-        assert "HTTP" in script_content
+    def test_sets_https_true_on_success(self, script_content):
+        """Script sets HTTPS=true when a cert is obtained successfully."""
+        assert "HTTPS=true" in script_content
+
+    def test_cert_path_variables_are_parameterized(self, script_content):
+        """Caddyfile TLS directive must reference cert/key via variables."""
+        assert "tls $CERT_PATH $KEY_PATH" in script_content
 
 
 class TestCaddyInstall:
