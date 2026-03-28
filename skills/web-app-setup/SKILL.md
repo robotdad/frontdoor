@@ -48,7 +48,11 @@ grep -q 'import.*conf.d' /etc/caddy/Caddyfile || \
     echo 'import /etc/caddy/conf.d/*.caddy' | tee -a /etc/caddy/Caddyfile
 ```
 
-### TLS certs absent *(Tailscale only — requires paid plan)*
+### TLS certs absent
+
+Three options — pick the first that applies:
+
+**Option A — Tailscale certs *(preferred; requires paid plan)*:**
 
 ```bash
 FQDN=$(tailscale status --json | python3 -c \
@@ -60,9 +64,27 @@ tailscale cert \
     "$FQDN"
 chown root:caddy /etc/ssl/tailscale/$FQDN.key
 chmod 640        /etc/ssl/tailscale/$FQDN.key
+CERT_PATH=/etc/ssl/tailscale/$FQDN.crt
+KEY_PATH=/etc/ssl/tailscale/$FQDN.key
 ```
 
-On failure (free plan): set `HTTPS=false`, use HTTP Caddy snippet (no `tls` directive).
+**Option B — Self-signed cert *(fallback; HTTPS works but browser shows warning)*:**
+
+```bash
+mkdir -p /etc/ssl/self-signed
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout /etc/ssl/self-signed/server.key \
+    -out    /etc/ssl/self-signed/server.crt \
+    -subj   "/CN=$(hostname -f)"
+chown root:caddy /etc/ssl/self-signed/server.key
+chmod 640        /etc/ssl/self-signed/server.key
+CERT_PATH=/etc/ssl/self-signed/server.crt
+KEY_PATH=/etc/ssl/self-signed/server.key
+```
+
+**Option C — No certs available *(HTTP only)*:**
+
+Set `HTTPS=false` and use the HTTP Caddy snippet (no `tls` directive). Traffic is still encrypted end-to-end on WireGuard/Tailscale overlays; plaintext is only on the loopback or VPN tunnel, not the public internet.
 
 ### Cert renewal timer absent *(Tailscale + Linux only)*
 
@@ -152,18 +174,23 @@ echo "Allocated port: $PORT"
 ### 2c. Write Caddy snippet
 
 ```bash
-FQDN=$(tailscale status --json | python3 -c \
-    "import sys,json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))")
+# FQDN detection: Tailscale preferred, hostname -f as fallback
+FQDN=$(tailscale status --json 2>/dev/null | \
+    python3 -c "import sys,json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" \
+    2>/dev/null) || FQDN=$(hostname -f)
 
-# HTTPS (certs present)
+# $CERT_PATH and $KEY_PATH were set in Phase 1 (TLS certs step).
+# If skipped (Option C / HTTP only), leave them unset and use the HTTP snippet below.
+
+# HTTPS (certs present — $CERT_PATH and $KEY_PATH set)
 cat > /etc/caddy/conf.d/<APPNAME>.caddy <<EOF
 $FQDN:$PORT {
-    tls /etc/ssl/tailscale/$FQDN.crt /etc/ssl/tailscale/$FQDN.key
+    tls $CERT_PATH $KEY_PATH
     reverse_proxy localhost:$PORT
 }
 EOF
 
-# HTTP fallback — replace block above with this if no certs
+# HTTP fallback — use this block instead when no certs are available
 # $FQDN:$PORT {
 #     reverse_proxy localhost:$PORT
 # }
@@ -412,6 +439,51 @@ async def index(request: Request):
 ```
 
 Do not add login forms, session cookies, or `require_tailscale_identity` middleware when this pattern is in effect. Frontdoor owns authentication; the app owns its business logic.
+
+---
+
+### 3f. Behind Frontdoor — App Hosting Pattern
+
+When your app runs behind frontdoor (i.e., frontdoor is deployed and section 3b's `forward_auth` Caddy snippet is in place), follow these conventions to keep the integration clean:
+
+**Bind localhost only — no external exposure:**
+
+```bash
+# Start your app bound to 127.0.0.1 only
+ExecStart=<START_COMMAND> --host 127.0.0.1 --port <PORT>
+```
+
+Caddy handles all external traffic. The app never needs to accept connections from outside the loopback interface.
+
+**No app-level TLS:**
+
+Do not configure TLS inside the app. TLS termination happens at Caddy. The app speaks plain HTTP on localhost, which is safe — traffic from Caddy to the app never leaves the machine.
+
+**No app-level auth:**
+
+Frontdoor's `forward_auth` validates every request before it reaches the app. Do not add login forms, session cookies, PAM, or Tailscale identity middleware. Trust the request; it has already been authenticated.
+
+**Read the authenticated user from the request header:**
+
+```python
+# FastAPI — frontdoor has already verified the user; just read the header
+@app.get("/")
+async def index(request: Request):
+    user = request.headers.get("X-Authenticated-User", "unknown")
+    return {"user": user}
+```
+
+The `X-Authenticated-User` header is injected by Caddy's `copy_headers` directive (section 3b) and contains the verified user identity from frontdoor.
+
+**amplifierd-specific: enable proxy auth trust:**
+
+If the app being deployed is `amplifierd`, set this environment variable so it trusts the proxy-injected identity instead of performing its own authentication:
+
+```bash
+Environment=AMPLIFIERD_TRUST_PROXY_AUTH=true
+```
+
+Add this to the systemd unit (or launchd plist `EnvironmentVariables` dict) alongside the other environment variables in section 2d.
 
 ---
 
