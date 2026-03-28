@@ -57,12 +57,26 @@ class TestEnvironmentDetection:
         assert "SUDO_USER" in script_content
 
 
-class TestTailscaleFqdnDetection:
-    def test_detects_fqdn_via_tailscale_json(self, script_content):
+class TestFqdnDetection:
+    def test_tries_tailscale_first(self, script_content):
+        """Script should attempt Tailscale FQDN detection as the primary method."""
         assert "tailscale status --json" in script_content
         assert "DNSName" in script_content
 
+    def test_falls_back_to_hostname_f(self, script_content):
+        """Script must fall back to 'hostname -f' when Tailscale is not available."""
+        assert "hostname -f" in script_content
+
+    def test_tailscale_failure_does_not_exit(self, script_content):
+        """Tailscale command failure must not abort the script (use 2>/dev/null or similar)."""
+        assert "2>/dev/null" in script_content
+
+    def test_fqdn_validated_after_all_detection_methods(self, script_content):
+        """FQDN must be validated for emptiness after all detection methods have been tried."""
+        assert '-z "$FQDN"' in script_content or '[ -z "$FQDN"' in script_content
+
     def test_detects_short_hostname(self, script_content):
+        """Script must detect the short hostname for use in Caddy redirect rules."""
         assert "hostname -s" in script_content
         assert "SHORT_HOSTNAME=" in script_content
 
