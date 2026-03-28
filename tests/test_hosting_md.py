@@ -150,7 +150,9 @@ class TestPuttingAppBehindFrontdoorSection:
         content = _read_hosting()
         # Check that steps 1-6 are present
         for i in range(1, 7):
-            assert f"{i}." in content or f"{i})" in content, f"Step {i} should be present"
+            assert f"{i}." in content or f"{i})" in content, (
+                f"Step {i} should be present"
+            )
 
     def test_bind_localhost_step(self):
         """Should mention binding to localhost."""
@@ -236,7 +238,10 @@ class TestEnvironmentVariablesSection:
     def test_has_env_vars_heading(self):
         """Should have an Environment Variables section."""
         content = _read_hosting()
-        assert "Environment Variable" in content or "environment variable" in content.lower()
+        assert (
+            "Environment Variable" in content
+            or "environment variable" in content.lower()
+        )
 
     def test_frontdoor_secret_key_listed(self):
         """Should list FRONTDOOR_SECRET_KEY."""

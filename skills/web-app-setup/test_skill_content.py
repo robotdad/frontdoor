@@ -5,6 +5,7 @@ These tests verify that SKILL.md contains all required sections and commands
 as specified in the task spec. Run BEFORE implementing changes to confirm
 they fail, then run AFTER to confirm they pass.
 """
+
 import pathlib
 
 SKILL_PATH = pathlib.Path(__file__).parent / "SKILL.md"
@@ -17,6 +18,7 @@ def read_skill() -> str:
 # --------------------------------------------------------------------------- #
 # Change 1: TLS certs section (lines 51-65 replacement)
 # --------------------------------------------------------------------------- #
+
 
 def test_tls_section_heading_no_tailscale_qualifier():
     """Section heading should be plain '### TLS certs absent' without the
@@ -59,6 +61,7 @@ def test_tls_http_fallback_option_present():
 # Change 2: Phase 2c Caddy snippet (lines 152-173 replacement)
 # --------------------------------------------------------------------------- #
 
+
 def test_caddy_snippet_cert_path_variable():
     """Caddy snippet must use $CERT_PATH variable for cert file path."""
     content = read_skill()
@@ -86,6 +89,7 @@ def test_caddy_snippet_tailscale_fqdn_detection():
 # --------------------------------------------------------------------------- #
 # Change 3: New section 3f (after line 414)
 # --------------------------------------------------------------------------- #
+
 
 def test_section_3f_exists():
     """New section '3f. Behind Frontdoor — App Hosting Pattern' must exist."""
