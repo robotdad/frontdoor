@@ -197,7 +197,7 @@ fi
 
 # --- Write environment file ---
 echo "Writing environment file..."
-(umask 177; cat > "$INSTALL_DIR/frontdoor.env" <<EOF
+(umask 177; cat > "$ENV_FILE" <<EOF
 FRONTDOOR_SECRET_KEY=$SECRET_KEY
 FRONTDOOR_SECURE_COOKIES=$HTTPS
 FRONTDOOR_COOKIE_DOMAIN=$FQDN

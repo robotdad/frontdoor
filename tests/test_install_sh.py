@@ -317,9 +317,17 @@ class TestEnvironmentFile:
         )
 
     def test_env_file_written_to_correct_path(self, script_content):
-        """The env file must be written to /opt/frontdoor/frontdoor.env."""
-        assert "/opt/frontdoor/frontdoor.env" in script_content, (
-            "install.sh must write the env file to /opt/frontdoor/frontdoor.env"
+        """The env file must be written to the path expressed by $ENV_FILE.
+
+        Checks that ENV_FILE is defined as '$INSTALL_DIR/frontdoor.env' and that
+        the write command uses '$ENV_FILE' rather than an ad-hoc literal path.
+        This guards against the assignment and the write command drifting apart.
+        """
+        assert 'ENV_FILE="$INSTALL_DIR/frontdoor.env"' in script_content, (
+            "install.sh must define ENV_FILE=$INSTALL_DIR/frontdoor.env"
+        )
+        assert '"$ENV_FILE"' in script_content, (
+            "install.sh must reference $ENV_FILE in the write command, not an inline literal path"
         )
 
     def test_service_template_uses_environment_file(self):
