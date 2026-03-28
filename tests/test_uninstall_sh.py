@@ -88,7 +88,9 @@ class TestRemoveUnitFileSection:
         )
 
     def test_removes_unit_file(self, script_content):
-        assert "rm" in script_content, "Must remove the unit file"
+        assert 'rm "/etc/systemd/system/$SERVICE_NAME.service"' in script_content, (
+            "Must remove the unit file at /etc/systemd/system/$SERVICE_NAME.service"
+        )
 
     def test_runs_daemon_reload_after_removal(self, script_content):
         assert "systemctl daemon-reload" in script_content, (
