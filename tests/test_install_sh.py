@@ -253,6 +253,20 @@ class TestSystemdUnit:
     def test_sed_replaces_frontdoor_dir(self, script_content):
         assert "FRONTDOOR_DIR" in script_content
 
+    def test_sed_does_not_substitute_env_vars_into_unit(self, script_content):
+        """Env vars like HTTPS and FQDN must NOT be sed-substituted into the unit file.
+
+        These values belong in the EnvironmentFile, not baked into the unit via sed.
+        """
+        assert "s|FRONTDOOR_HTTPS_ENABLED|" not in script_content, (
+            "FRONTDOOR_HTTPS_ENABLED must not be sed-substituted into the unit file — "
+            "use EnvironmentFile= instead"
+        )
+        assert "s|FRONTDOOR_FQDN|" not in script_content, (
+            "FRONTDOOR_FQDN must not be sed-substituted into the unit file — "
+            "use EnvironmentFile= instead"
+        )
+
     def test_secret_not_injected_inline_via_sed(self, script_content):
         """Regression: secret must NOT be substituted inline into the systemd unit via sed."""
         assert "s|FRONTDOOR_SECRET|" not in script_content, (
@@ -260,11 +274,79 @@ class TestSystemdUnit:
             "use EnvironmentFile= instead"
         )
 
-    def test_sed_replaces_frontdoor_https_enabled(self, script_content):
-        assert "FRONTDOOR_HTTPS_ENABLED" in script_content
 
-    def test_sed_replaces_frontdoor_fqdn(self, script_content):
-        assert "FRONTDOOR_FQDN" in script_content
+class TestEnvironmentFile:
+    """Tests for the frontdoor.env EnvironmentFile written by install.sh."""
+
+    def test_writes_frontdoor_env_file(self, script_content):
+        """install.sh must write a frontdoor.env file for use as EnvironmentFile=."""
+        assert "frontdoor.env" in script_content, (
+            "install.sh must write frontdoor.env for use as systemd EnvironmentFile="
+        )
+
+    def test_env_file_contains_secret_key(self, script_content):
+        """The env file must include FRONTDOOR_SECRET_KEY= for the app secret."""
+        assert "FRONTDOOR_SECRET_KEY=" in script_content, (
+            "install.sh must write FRONTDOOR_SECRET_KEY= into the EnvironmentFile"
+        )
+
+    def test_env_file_contains_secure_cookies(self, script_content):
+        """The env file must include FRONTDOOR_SECURE_COOKIES= (replaces sed substitution)."""
+        assert "FRONTDOOR_SECURE_COOKIES=" in script_content, (
+            "install.sh must write FRONTDOOR_SECURE_COOKIES= into the EnvironmentFile"
+        )
+
+    def test_env_file_contains_cookie_domain(self, script_content):
+        """The env file must include FRONTDOOR_COOKIE_DOMAIN= (replaces sed substitution)."""
+        assert "FRONTDOOR_COOKIE_DOMAIN=" in script_content, (
+            "install.sh must write FRONTDOOR_COOKIE_DOMAIN= into the EnvironmentFile"
+        )
+
+    def test_env_file_written_with_restrictive_permissions(self, script_content):
+        """The env file must be written atomically with restrictive permissions via umask 177."""
+        assert "umask 177" in script_content, (
+            "frontdoor.env must be created atomically via (umask 177; ...) — "
+            "writing then chmod creates an exposure window"
+        )
+
+    def test_env_file_written_to_correct_path(self, script_content):
+        """The env file must be written to /opt/frontdoor/frontdoor.env."""
+        assert "/opt/frontdoor/frontdoor.env" in script_content, (
+            "install.sh must write the env file to /opt/frontdoor/frontdoor.env"
+        )
+
+    def test_service_template_uses_environment_file(self):
+        """Service template must use EnvironmentFile= pointing to frontdoor.env."""
+        service_path = os.path.join(
+            os.path.dirname(__file__), "..", "deploy", "frontdoor.service"
+        )
+        with open(service_path) as f:
+            service_content = f.read()
+        assert "EnvironmentFile=" in service_content, (
+            "frontdoor.service must use EnvironmentFile= for environment delivery"
+        )
+        assert "frontdoor.env" in service_content, (
+            "frontdoor.service EnvironmentFile= must reference frontdoor.env"
+        )
+
+    def test_service_template_no_environment_lines(self):
+        """Service template must NOT have inline Environment= lines for runtime config vars.
+
+        These values belong in the EnvironmentFile, not baked into the unit template.
+        """
+        service_path = os.path.join(
+            os.path.dirname(__file__), "..", "deploy", "frontdoor.service"
+        )
+        with open(service_path) as f:
+            service_content = f.read()
+        assert "Environment=FRONTDOOR_SECURE_COOKIES" not in service_content, (
+            "frontdoor.service must not have inline Environment=FRONTDOOR_SECURE_COOKIES — "
+            "use EnvironmentFile= instead"
+        )
+        assert "Environment=FRONTDOOR_COOKIE_DOMAIN" not in service_content, (
+            "frontdoor.service must not have inline Environment=FRONTDOOR_COOKIE_DOMAIN — "
+            "use EnvironmentFile= instead"
+        )
 
 
 class TestServiceManagement:
