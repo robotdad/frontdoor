@@ -43,11 +43,11 @@ if [ -z "$SHORT_HOSTNAME" ] || [[ "$SHORT_HOSTNAME" =~ [^a-zA-Z0-9\-] ]]; then
     exit 1
 fi
 
-# --- Generate secret key (idempotent: read from file if exists) ---
+# --- Generate secret key (idempotent: read from frontdoor.env if exists) ---
 echo "Setting up secret key..."
-SECRET_FILE="$INSTALL_DIR/.secret_key"
-if [ -f "$SECRET_FILE" ]; then
-    SECRET_KEY=$(grep '^FRONTDOOR_SECRET_KEY=' "$SECRET_FILE" | cut -d= -f2-)
+ENV_FILE="$INSTALL_DIR/frontdoor.env"
+if [ -f "$ENV_FILE" ]; then
+    SECRET_KEY=$(grep '^FRONTDOOR_SECRET_KEY=' "$ENV_FILE" | cut -d= -f2-)
     echo "  Using existing secret key"
 else
     SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -68,9 +68,6 @@ echo "Installing application to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 chown "$USER:$USER" "$INSTALL_DIR"
 rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='.git' "$PROJECT_DIR/" "$INSTALL_DIR/"
-
-# Save secret key in EnvironmentFile format (atomic creation with restrictive permissions)
-(umask 177; echo "FRONTDOOR_SECRET_KEY=$SECRET_KEY" > "$SECRET_FILE")
 
 # --- Create venv and install ---
 echo "Setting up Python environment..."
@@ -198,15 +195,22 @@ import /etc/caddy/conf.d/*.caddy
 EOF
 fi
 
+# --- Write environment file ---
+echo "Writing environment file..."
+(umask 177; cat > "$INSTALL_DIR/frontdoor.env" <<EOF
+FRONTDOOR_SECRET_KEY=$SECRET_KEY
+FRONTDOOR_SECURE_COOKIES=$HTTPS
+FRONTDOOR_COOKIE_DOMAIN=$FQDN
+EOF
+)
+
 # --- Write systemd unit ---
 echo "Installing systemd unit..."
-# Secret is read via EnvironmentFile=/opt/frontdoor/.secret_key — not injected inline.
+# Values are delivered via EnvironmentFile=/opt/frontdoor/frontdoor.env — not injected inline.
 # Unit file is created atomically with restrictive permissions (umask 177 = mode 0600).
 (umask 177; sed \
     -e "s|FRONTDOOR_USER|$USER|g" \
     -e "s|FRONTDOOR_DIR|$INSTALL_DIR|g" \
-    -e "s|FRONTDOOR_HTTPS_ENABLED|$HTTPS|g" \
-    -e "s|FRONTDOOR_FQDN|$FQDN|g" \
     "$INSTALL_DIR/deploy/frontdoor.service" \
     > /etc/systemd/system/frontdoor.service)
 

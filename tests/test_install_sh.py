@@ -83,8 +83,13 @@ class TestFqdnDetection:
 
 class TestSecretKeyGeneration:
     def test_reads_existing_secret_key(self, script_content):
-        assert ".secret_key" in script_content
-        assert "cat " in script_content or "$(cat" in script_content
+        """Secret key must be read from frontdoor.env (not .secret_key) when it exists."""
+        assert "frontdoor.env" in script_content, (
+            "Secret key must be read from frontdoor.env via ENV_FILE"
+        )
+        assert "grep '^FRONTDOOR_SECRET_KEY='" in script_content, (
+            "Must use grep '^FRONTDOOR_SECRET_KEY=' to read existing secret key from frontdoor.env"
+        )
 
     def test_generates_new_secret_key(self, script_content):
         assert "secrets.token_hex(32)" in script_content
@@ -98,7 +103,9 @@ class TestSecretKeyGeneration:
             "Secret file must be created atomically via (umask 177; ...) — "
             "writing then chmod 600 creates a window of exposure"
         )
-        assert ".secret_key" in script_content
+        assert "frontdoor.env" in script_content, (
+            "Secret must be written to frontdoor.env (not .secret_key)"
+        )
 
 
 class TestPamAccess:
