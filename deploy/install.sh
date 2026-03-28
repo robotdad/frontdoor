@@ -13,9 +13,22 @@ CERT_DIR="/etc/ssl/tailscale"
 FILEBROWSER_NEW_PORT=8447
 HTTPS=false
 
-# --- Detect Tailscale FQDN ---
-echo "Detecting Tailscale FQDN..."
-FQDN=$(tailscale status --json | python3 -c "import sys, json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))")
+# --- Detect FQDN (Tailscale preferred, hostname -f fallback) ---
+echo "Detecting FQDN..."
+FQDN=""
+
+# Try Tailscale first
+if command -v tailscale &>/dev/null; then
+    FQDN=$(tailscale status --json 2>/dev/null \
+        | python3 -c "import sys, json; d=json.load(sys.stdin); print(d['Self']['DNSName'].rstrip('.'))" \
+        2>/dev/null) || true
+fi
+
+# Fall back to hostname -f if Tailscale didn't provide an FQDN
+if [ -z "$FQDN" ]; then
+    FQDN=$(hostname -f 2>/dev/null) || true
+fi
+
 echo "  FQDN: $FQDN"
 
 SHORT_HOSTNAME=$(hostname -s)
