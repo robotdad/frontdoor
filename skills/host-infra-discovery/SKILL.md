@@ -54,21 +54,33 @@ which cloudflared 2>/dev/null && echo "CLOUDFLARE_TUNNEL_DETECTED" || true
 
 *Skip sections flagged as Tailscale-only if overlay detection showed something else.*
 
-### 1. Tailscale — FQDN and certs *(Tailscale only)*
+### 1. FQDN and TLS certs
 
 ```bash
-tailscale status --json | python3 -c \
-    "import sys,json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))"
-ls /etc/ssl/tailscale/ 2>/dev/null || echo "NO_CERTS"
+# Detect FQDN — Tailscale if present, system hostname otherwise
+command -v tailscale > /dev/null 2>&1 \
+    && tailscale status --json | python3 -c \
+        "import sys,json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" \
+    || { hostname -f; echo "TAILSCALE_NOT_INSTALLED"; }
+
+# Tailscale-managed certs
+ls /etc/ssl/tailscale/ 2>/dev/null || echo "NO_TAILSCALE_CERTS"
+
+# Self-signed certs
+ls /etc/ssl/self-signed/ 2>/dev/null || echo "NO_SELF_SIGNED_CERTS"
 ```
 
 | Result | Meaning |
 |--------|---------|
-| FQDN printed | Reuse as Caddy vhost name |
-| `NO_CERTS` or empty dir | Need `tailscale cert`; HTTP fallback until then |
-| `.crt` and `.key` both present | Skip cert generation |
+| Tailscale FQDN printed (e.g. `host.ts.net`) | Use as Caddy vhost name; cert type = **tailscale** |
+| `TAILSCALE_NOT_INSTALLED` + `hostname -f` output | No Tailscale; use system FQDN; cert type = self-signed or none |
+| Tailscale certs present (`.crt` + `.key` in `/etc/ssl/tailscale/`) | Skip cert generation; cert type = **tailscale** |
+| Self-signed certs present (files in `/etc/ssl/self-signed/`) | Skip cert generation; cert type = **self-signed** |
+| Neither cert dir has files | Need `tailscale cert` (if Tailscale) or generate self-signed; cert type = **none** |
 
 ### 2. Cert renewal timer *(Tailscale only)*
+
+*Skip this section entirely if cert type is **self-signed** or **none** — self-signed certs carry 10-year validity and do not require a renewal timer.*
 
 ```bash
 # Linux
@@ -141,8 +153,10 @@ Build this table from the checks before writing any config:
 | Component | Found | Action |
 |-----------|-------|--------|
 | Tailscale FQDN | `hostname.ts.net` | Use as vhost name |
-| TLS certs | present / absent | Skip / `tailscale cert` |
-| Cert renewal timer | enabled / not | Skip / install |
+| FQDN (no Tailscale) | `hostname -f` output | Use as vhost name; cert type = self-signed or none |
+| Cert type | tailscale / self-signed / none | Determines cert commands and renewal timer |
+| TLS certs | tailscale present / self-signed present / absent | Skip / skip / provision |
+| Cert renewal timer | enabled / not installed / n/a (self-signed or none) | Skip / install / skip |
 | Caddy | running + conf.d wired / partial / absent | Drop snippet / fix gaps / full install |
 | Open port (8444+) | e.g. `8445` not in socket scan | Use in snippet + registry |
 | Shadow group (Linux) | user present / absent | Skip / `usermod -aG shadow` |
