@@ -47,6 +47,7 @@ def _parse_site_block(text: str, name: str) -> dict | None:
     # Site address is the first non-whitespace token before the opening brace.
     addr_match = re.search(r"^(\S+)\s*\{", text, re.MULTILINE)
     if not addr_match:
+        logger.debug("Skipping block %s: no address found", name)
         return None
     site_addr = addr_match.group(1)
 
@@ -54,6 +55,7 @@ def _parse_site_block(text: str, name: str) -> dict | None:
     # Skip named-matcher directives like "reverse_proxy @terminal ..."
     proxy_match = re.search(r"reverse_proxy\s+(?!@)(\S+)", text)
     if not proxy_match:
+        logger.debug("Skipping block %s: no reverse_proxy found", name)
         return None
     proxy_target = proxy_match.group(1)
 
@@ -121,6 +123,7 @@ def parse_caddy_configs(main_config: Path, conf_d: Path) -> list[dict]:
         except Exception:
             logger.warning("Failed to parse Caddy config: %s", caddy_file)
 
+    logger.info("Parsed %d services from Caddy configs", len(services))
     return services
 
 
@@ -151,8 +154,10 @@ def overlay_manifests(services: list[dict], manifest_dir: Path) -> list[dict]:
             for key in _MERGE_KEYS:
                 if key in data:
                     merged[key] = data[key]
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        except json.JSONDecodeError as e:
+            logger.debug("Invalid manifest for %s: %s", slug, e)
+        except FileNotFoundError:
+            logger.debug("No manifest for %s", slug)
         enriched.append(merged)
 
     return enriched
@@ -179,18 +184,22 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
             text=True,
             timeout=5,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("ss command error: %s", e)
         return []
 
     if result.returncode != 0:
+        logger.warning("ss command failed (returncode=%d)", result.returncode)
         return []
 
     exclude: set[int] = RESERVED_PORTS | skip_ports | {settings.port}
 
     services: list[dict] = []
+    listen_count = 0
     for line in result.stdout.splitlines():
         if "LISTEN" not in line:
             continue
+        listen_count += 1
 
         port_match = re.search(r":(\d+)\s", line)
         if not port_match:
@@ -212,4 +221,7 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
             }
         )
 
+    logger.debug(
+        "Process scan found %d listeners, %d unregistered", listen_count, len(services)
+    )
     return services

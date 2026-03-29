@@ -7,7 +7,12 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
-from frontdoor.auth import authenticate_pam, create_session_token, require_auth
+from frontdoor.auth import (
+    authenticate_pam,
+    create_session_token,
+    require_auth,
+    validate_session_token,
+)
 from frontdoor.config import settings
 
 router = APIRouter()
@@ -76,9 +81,16 @@ async def login(
 
 
 @router.post("/api/auth/logout")
-async def logout() -> RedirectResponse:
+async def logout(request: Request) -> RedirectResponse:
     """Clear the session cookie and redirect to /login."""
-    logger.info("Logout")
+    token = request.cookies.get("frontdoor_session")
+    username = (
+        validate_session_token(token, settings.secret_key, settings.session_timeout)
+        if token
+        else None
+    )
+    client = request.client.host if request.client else "unknown"
+    logger.info("Logout user=%s client=%s", username or "unknown", client)
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie(
         key="frontdoor_session",
