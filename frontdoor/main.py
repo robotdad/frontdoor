@@ -15,6 +15,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     force=True,
 )
+# Suppress noisy third-party DEBUG output that floods the journal when our
+# log level is set to debug.  We only want debug detail from our own code.
+logging.getLogger("python_multipart").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 logger.info("Frontdoor starting (log_level=%s)", settings.log_level)
 
