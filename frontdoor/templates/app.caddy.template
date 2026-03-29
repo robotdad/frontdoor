@@ -1,0 +1,10 @@
+APPNAME_FQDN:APPNAME_PORT {
+    tls CERT_PATH KEY_PATH
+
+    forward_auth localhost:8420 {
+        uri /api/auth/validate
+        copy_headers X-Authenticated-User
+    }
+
+    reverse_proxy localhost:APPNAME_INTERNAL_PORT
+}

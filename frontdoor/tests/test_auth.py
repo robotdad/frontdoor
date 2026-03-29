@@ -1,0 +1,444 @@
+import asyncio
+import time
+
+import pytest
+from fastapi import HTTPException
+from starlette.testclient import TestClient
+from unittest.mock import MagicMock, patch, patch as _patch
+
+from frontdoor.config import Settings
+
+SECRET = "test-secret-key-for-unit-tests"
+
+
+class TestCreateSessionToken:
+    def test_returns_string(self):
+        from frontdoor.auth import create_session_token
+
+        token = create_session_token("testuser", SECRET)
+        assert isinstance(token, str)
+        assert len(token) > 0
+
+    def test_contains_username(self):
+        from frontdoor.auth import create_session_token
+
+        token = create_session_token("alice", SECRET)
+        assert "alice" in token
+
+    def test_different_users_different_tokens(self):
+        from frontdoor.auth import create_session_token
+
+        t1 = create_session_token("alice", SECRET)
+        t2 = create_session_token("bob", SECRET)
+        assert t1 != t2
+
+
+class TestValidateSessionToken:
+    def test_valid_returns_username(self):
+        from frontdoor.auth import create_session_token, validate_session_token
+
+        token = create_session_token("alice", SECRET)
+        result = validate_session_token(token, SECRET, max_age=3600)
+        assert result == "alice"
+
+    def test_wrong_secret_returns_none(self):
+        from frontdoor.auth import create_session_token, validate_session_token
+
+        token = create_session_token("alice", SECRET)
+        result = validate_session_token(token, "wrong-secret", max_age=3600)
+        assert result is None
+
+    def test_tampered_returns_none(self):
+        from frontdoor.auth import create_session_token, validate_session_token
+
+        token = create_session_token("alice", SECRET)
+        tampered = token[:-5] + "XXXXX"
+        result = validate_session_token(tampered, SECRET, max_age=3600)
+        assert result is None
+
+    def test_expired_returns_none(self):
+        from frontdoor.auth import create_session_token, validate_session_token
+
+        token = create_session_token("alice", SECRET)
+        time.sleep(1.1)  # itsdangerous uses second-resolution timestamps
+        result = validate_session_token(token, SECRET, max_age=0)
+        assert result is None
+
+
+class TestAuthenticatePam:
+    def test_mock_success(self):
+        from frontdoor.auth import authenticate_pam
+
+        with patch("frontdoor.auth.pam.pam") as mock_pam_class:
+            mock_pam_class.return_value.authenticate.return_value = True
+            assert authenticate_pam("user", "pass") is True
+
+    def test_mock_failure(self):
+        from frontdoor.auth import authenticate_pam
+
+        with patch("frontdoor.auth.pam.pam") as mock_pam_class:
+            mock_pam_class.return_value.authenticate.return_value = False
+            assert authenticate_pam("user", "wrong") is False
+
+
+class TestRequireAuth:
+    def test_missing_cookie_raises_401(self):
+        from frontdoor.auth import require_auth
+
+        request = MagicMock()
+        request.cookies = {}
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.get_event_loop().run_until_complete(require_auth(request))
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail["code"] == "UNAUTHORIZED"  # type: ignore[index]
+
+    def test_invalid_token_raises_401(self):
+        from frontdoor.auth import require_auth
+
+        request = MagicMock()
+        request.cookies = {"frontdoor_session": "garbage-token"}
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.get_event_loop().run_until_complete(require_auth(request))
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail["code"] == "UNAUTHORIZED"  # type: ignore[index]
+
+    def test_valid_token_returns_username(self):
+        from frontdoor.auth import create_session_token, require_auth
+        from frontdoor.config import Settings
+
+        token = create_session_token("alice", SECRET)
+        request = MagicMock()
+        request.cookies = {"frontdoor_session": token}
+
+        mock_settings = Settings()
+        mock_settings.secret_key = SECRET
+        mock_settings.session_timeout = 3600
+
+        with patch("frontdoor.auth.settings", mock_settings):
+            result = asyncio.get_event_loop().run_until_complete(require_auth(request))
+        assert result == "alice"
+
+
+# ---------------------------------------------------------------------------
+# Route tests – require the app to have the auth router registered
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def auth_client():
+    """TestClient that does NOT follow redirects (so we can inspect 3xx responses)."""
+    from frontdoor.main import app
+
+    return TestClient(app, base_url="https://testserver", follow_redirects=False)
+
+
+@pytest.fixture
+def valid_token():
+    """A freshly-minted, valid session token for 'testuser'."""
+    from frontdoor.auth import create_session_token
+
+    return create_session_token("testuser", SECRET)
+
+
+@pytest.fixture
+def patched_settings():
+    """Settings with the known SECRET and a long timeout."""
+    s = Settings()
+    s.secret_key = SECRET
+    s.session_timeout = 3600
+    s.cookie_domain = ""
+    return s
+
+
+class TestValidateRoute:
+    def test_no_cookie_returns_401(self, auth_client):
+        response = auth_client.get("/api/auth/validate")
+        assert response.status_code == 401
+
+    def test_invalid_cookie_returns_401(self, auth_client):
+        response = auth_client.get(
+            "/api/auth/validate", cookies={"frontdoor_session": "garbage-token"}
+        )
+        assert response.status_code == 401
+
+    def test_valid_cookie_returns_200_with_header(
+        self, auth_client, valid_token, patched_settings
+    ):
+        with _patch("frontdoor.auth.settings", patched_settings):
+            response = auth_client.get(
+                "/api/auth/validate",
+                cookies={"frontdoor_session": valid_token},
+            )
+        assert response.status_code == 200
+        assert response.headers.get("x-authenticated-user") == "testuser"
+
+
+class TestLogoutRoute:
+    def test_logout_redirects_303_to_login(self, auth_client):
+        response = auth_client.post("/api/auth/logout")
+        assert response.status_code == 303
+        assert response.headers.get("location") in (
+            "/login",
+            "https://testserver/login",
+        )
+
+    def test_logout_clears_cookie(self, auth_client):
+        response = auth_client.post("/api/auth/logout")
+        set_cookie = response.headers.get("set-cookie", "")
+        assert "frontdoor_session" in set_cookie
+        assert "max-age=0" in set_cookie.lower()
+
+
+class TestLoginRoute:
+    def test_successful_login_sets_cookie_and_redirects(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location == "/"
+        assert "frontdoor_session" in response.headers.get("set-cookie", "")
+
+    def test_failed_login_redirects_with_error(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location.startswith("/login?error=1")
+
+    def test_next_param_redirects(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login?next=/some/deep/page",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location == "/some/deep/page"
+
+    def test_failed_login_preserves_next(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login?next=/some/deep/page",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert "error=1" in location
+        assert "next=" in location
+
+    def test_cookie_name_is_frontdoor_session(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert "frontdoor_session" in response.headers.get("set-cookie", "")
+
+    def test_cookie_is_httponly(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "httponly" in set_cookie
+
+    def test_cookie_samesite_lax(self, auth_client):
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        assert "samesite=lax" in set_cookie
+
+    # ------------------------------------------------------------------
+    # Security regression tests: open redirect and URL encoding
+    # ------------------------------------------------------------------
+
+    def test_open_redirect_absolute_url_rejected(self, auth_client):
+        """Successful login with an absolute external next must not redirect off-site."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login?next=https://evil.example",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location == "/"
+
+    def test_open_redirect_protocol_relative_rejected(self, auth_client):
+        """Successful login with a protocol-relative next must not redirect off-site."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            response = auth_client.post(
+                "/api/auth/login?next=//evil.example",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        assert location == "/"
+
+    def test_failed_login_next_is_url_encoded(self, auth_client):
+        """Failed login redirect must URL-encode next so embedded chars don't corrupt the query string."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login?next=/path%3Fx%3D1%26admin%3Dtrue",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        location = response.headers.get("location", "")
+        # If next is not encoded, "admin=true" appears as a standalone query param
+        assert "admin=true" not in location
+        assert "error=1" in location
+        assert "next=" in location
+
+    def test_failed_login_has_no_session_cookie(self, auth_client):
+        """Failed login must not issue a session cookie."""
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=False):
+            response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "badpass"},
+            )
+        assert response.status_code == 303
+        set_cookie = response.headers.get("set-cookie", "")
+        assert "frontdoor_session" not in set_cookie
+
+
+class TestLoginPageRoute:
+    def test_login_page_returns_html(self, auth_client):
+        """GET /login returns 200 with HTML containing 'Sign In'."""
+        response = auth_client.get("/login")
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+        assert "Sign In" in response.text
+
+    def test_next_param_preserved_through_login_page(self, auth_client):
+        """Deep-link: login page must forward ?next to the form action.
+
+        The server returns a static HTML file; the next value is wired into the
+        form action client-side by a script block.  We therefore verify that the
+        HTML contains the JavaScript mechanism that performs the forwarding, not
+        the runtime-resolved value (which is only available in the browser).
+        """
+        response = auth_client.get("/login?next=%2Fsome%2Fpath")
+        assert response.status_code == 200
+        # The JS must read ?next from the URL and patch the form action.
+        assert "URLSearchParams" in response.text
+        assert "/api/auth/login?next=" in response.text
+
+
+class TestServicesRequiresAuth:
+    def test_services_returns_401_without_cookie(self, auth_client):
+        """GET /api/services returns 401 when no session cookie is present."""
+        response = auth_client.get("/api/services")
+        assert response.status_code == 401
+
+    def test_services_returns_200_with_valid_cookie(
+        self, auth_client, valid_token, patched_settings
+    ):
+        """GET /api/services does not return 401 when a valid session cookie is present."""
+        with (
+            _patch("frontdoor.auth.settings", patched_settings),
+            _patch(
+                "frontdoor.routes.services._collect_services",
+                return_value={"services": [], "unregistered": []},
+            ),
+        ):
+            response = auth_client.get(
+                "/api/services",
+                cookies={"frontdoor_session": valid_token},
+            )
+        assert response.status_code != 401
+
+
+# ---------------------------------------------------------------------------
+# End-to-end integration tests: full auth lifecycle and deep link flow
+# ---------------------------------------------------------------------------
+
+
+def _parse_session_cookie(response) -> str:
+    """Extract frontdoor_session value from a response's set-cookie header."""
+    from http.cookies import SimpleCookie
+
+    cookie: SimpleCookie = SimpleCookie()
+    cookie.load(response.headers.get("set-cookie", ""))
+    morsel = cookie.get("frontdoor_session")
+    return morsel.value if morsel else ""
+
+
+class TestFullAuthFlow:
+    def test_unauthenticated_validate_returns_401(self, auth_client):
+        """Unauthenticated request to /api/auth/validate returns 401."""
+        response = auth_client.get("/api/auth/validate")
+        assert response.status_code == 401
+
+    def test_login_then_validate_then_logout(self, auth_client):
+        """Full lifecycle: login -> cookie -> validate -> 200 -> logout -> validate -> 401."""
+        # POST login with mocked PAM
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            login_response = auth_client.post(
+                "/api/auth/login",
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert login_response.status_code == 303
+
+        # Extract frontdoor_session cookie from set-cookie header
+        auth_client.cookies.set(
+            "frontdoor_session", _parse_session_cookie(login_response)
+        )
+
+        # GET /api/auth/validate → 200 + X-Authenticated-User
+        validate_response = auth_client.get("/api/auth/validate")
+        assert validate_response.status_code == 200
+        assert validate_response.headers.get("x-authenticated-user") == "testuser"
+
+        # POST logout — verify the response itself clears the session cookie
+        logout_response = auth_client.post("/api/auth/logout")
+        assert logout_response.status_code == 303
+        assert logout_response.headers.get("location") in (
+            "/login",
+            "https://testserver/login",
+        )
+        logout_set_cookie = logout_response.headers.get("set-cookie", "")
+        assert "frontdoor_session" in logout_set_cookie
+        assert "max-age=0" in logout_set_cookie.lower()
+
+        # Clear client cookies (simulates browser honouring the deletion directive)
+        auth_client.cookies.clear()
+        validate_again = auth_client.get("/api/auth/validate")
+        assert validate_again.status_code == 401
+
+    def test_deep_link_flow(self, auth_client):
+        """Deep link flow: absolute next URL is sanitized to '/' by safety check."""
+        from urllib.parse import urlencode
+
+        # GET validate → 401
+        response = auth_client.get("/api/auth/validate")
+        assert response.status_code == 401
+
+        next_url = "https://monad.tail09557f.ts.net:8443/files"
+
+        # POST login with next=absolute URL → 303; safety check rejects absolute URL → location = "/"
+        login_url = f"/api/auth/login?{urlencode({'next': next_url})}"
+        with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
+            login_response = auth_client.post(
+                login_url,
+                data={"username": "testuser", "password": "goodpass"},
+            )
+        assert login_response.status_code == 303
+        assert login_response.headers.get("location") == "/"
+
+        # Extract cookie from set-cookie header and set on client
+        auth_client.cookies.set(
+            "frontdoor_session", _parse_session_cookie(login_response)
+        )
+
+        # GET validate → 200
+        validate_response = auth_client.get("/api/auth/validate")
+        assert validate_response.status_code == 200

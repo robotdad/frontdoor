@@ -1,0 +1,15 @@
+[Unit]
+Description=Frontdoor
+After=network.target
+
+[Service]
+Type=simple
+User=FRONTDOOR_USER
+WorkingDirectory=FRONTDOOR_DIR
+ExecStart=FRONTDOOR_DIR/.venv/bin/uvicorn frontdoor.main:app --host 127.0.0.1 --port 8420
+Restart=always
+RestartSec=5
+EnvironmentFile=FRONTDOOR_DIR/frontdoor.env
+
+[Install]
+WantedBy=multi-user.target

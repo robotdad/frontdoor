@@ -1,0 +1,115 @@
+#!/bin/bash
+# install.sh for APPNAME_DISPLAY_NAME
+# Generated from frontdoor/templates/install.sh.template
+#
+# Port allocation: see frontdoor/frontdoor/ports.py for reserved ports and
+# the next_available_port() helper. Choose APPNAME_INTERNAL_PORT and
+# APPNAME_PORT from the unreserved ranges listed there.
+#
+# Usage: sudo bash install.sh
+
+set -euo pipefail
+
+APP_DISPLAY_NAME="APPNAME_DISPLAY_NAME"
+APP_SLUG="APPNAME_SLUG"
+APP_INTERNAL_PORT=APPNAME_INTERNAL_PORT
+APP_PORT=APPNAME_PORT
+APP_MODULE="APPNAME_MODULE"
+
+echo "=== ${APP_DISPLAY_NAME} Installer ==="
+
+# --- Detect environment ---
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# When run via sudo, whoami returns root. Use SUDO_USER to get the real user.
+USER="${SUDO_USER:-$(whoami)}"
+INSTALL_DIR="/opt/${APP_SLUG}"
+CERT_DIR="/etc/ssl/tailscale"
+HTTPS=false
+
+# --- Detect Tailscale FQDN ---
+echo "Detecting Tailscale FQDN..."
+FQDN=$(tailscale status --json | python3 -c "import sys, json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))")
+echo "  FQDN: $FQDN"
+
+SHORT_HOSTNAME=$(hostname -s)
+echo "  Short hostname: $SHORT_HOSTNAME"
+
+CERT_PATH="$CERT_DIR/$FQDN.crt"
+KEY_PATH="$CERT_DIR/$FQDN.key"
+if [ -f "$CERT_PATH" ] && [ -f "$KEY_PATH" ]; then
+    HTTPS=true
+fi
+
+# --- Install application ---
+echo "Installing application to $INSTALL_DIR..."
+mkdir -p "$INSTALL_DIR"
+chown "$USER:$USER" "$INSTALL_DIR"
+rsync -a \
+    --exclude='.venv' \
+    --exclude='__pycache__' \
+    --exclude='.git' \
+    "$PROJECT_DIR/" \
+    "$INSTALL_DIR/"
+
+# --- Create venv and install ---
+echo "Setting up Python environment..."
+python3 -m venv "$INSTALL_DIR/.venv"
+"$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
+"$INSTALL_DIR/.venv/bin/pip" install --quiet "$INSTALL_DIR"
+
+# --- Create Caddy conf.d directory ---
+echo "Creating Caddy conf.d directory..."
+mkdir -p /etc/caddy/conf.d
+
+# --- Write Caddy snippet ---
+echo "Writing Caddy snippet..."
+if [ "$HTTPS" = true ]; then
+    cat > "/etc/caddy/conf.d/${APP_SLUG}.caddy" <<EOF
+$FQDN:$APP_PORT {
+    tls $CERT_PATH $KEY_PATH
+
+    forward_auth localhost:8420 {
+        uri /api/auth/validate
+        copy_headers X-Authenticated-User
+    }
+
+    reverse_proxy localhost:$APP_INTERNAL_PORT
+}
+EOF
+else
+    cat > "/etc/caddy/conf.d/${APP_SLUG}.caddy" <<EOF
+http://$FQDN:$APP_PORT {
+    forward_auth localhost:8420 {
+        uri /api/auth/validate
+        copy_headers X-Authenticated-User
+    }
+
+    reverse_proxy localhost:$APP_INTERNAL_PORT
+}
+EOF
+fi
+
+# --- Write systemd unit ---
+echo "Installing systemd unit..."
+sed \
+    -e "s|APPNAME_USER|$USER|g" \
+    -e "s|APPNAME_INSTALL_DIR|$INSTALL_DIR|g" \
+    -e "s|APPNAME_INTERNAL_PORT|$APP_INTERNAL_PORT|g" \
+    -e "s|APPNAME_MODULE|$APP_MODULE|g" \
+    "$INSTALL_DIR/deploy/${APP_SLUG}.service" \
+    > "/etc/systemd/system/${APP_SLUG}.service"
+
+# --- Copy frontdoor manifest ---
+echo "Registering app with frontdoor..."
+cp "$INSTALL_DIR/deploy/frontdoor.json" "/opt/frontdoor/manifests/${APP_SLUG}.json"
+
+# --- Enable and start services ---
+echo "Starting services..."
+systemctl daemon-reload
+systemctl enable "${APP_SLUG}"
+systemctl restart "${APP_SLUG}"
+systemctl reload caddy
+
+echo ""
+echo "=== Installation complete ==="

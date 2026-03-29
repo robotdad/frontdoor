@@ -1,0 +1,267 @@
+"""Tests for frontdoor/discovery.py — parse_caddy_configs()."""
+
+import json
+import socket
+from unittest.mock import MagicMock, patch
+
+from frontdoor.discovery import (
+    overlay_manifests,
+    parse_caddy_configs,
+    scan_processes,
+    tcp_probe,
+)
+
+
+class TestParseCaddyConfigs:
+    def test_parses_conf_d_files(self, tmp_caddy_dir):
+        """parse_caddy_configs returns one entry per .caddy file in conf.d."""
+        services = parse_caddy_configs(
+            main_config=tmp_caddy_dir / "Caddyfile",
+            conf_d=tmp_caddy_dir / "conf.d",
+        )
+        assert len(services) == 2
+
+    def test_extracts_internal_port(self, tmp_caddy_dir):
+        """Each service dict contains the correct internal_port."""
+        services = parse_caddy_configs(
+            main_config=tmp_caddy_dir / "Caddyfile",
+            conf_d=tmp_caddy_dir / "conf.d",
+        )
+        ports = {s["internal_port"] for s in services}
+        assert 8445 in ports
+        assert 8443 in ports
+
+    def test_extracts_external_url(self, tmp_caddy_dir):
+        """Each service dict contains an external_url starting with https://."""
+        services = parse_caddy_configs(
+            main_config=tmp_caddy_dir / "Caddyfile",
+            conf_d=tmp_caddy_dir / "conf.d",
+        )
+        for svc in services:
+            assert svc["external_url"].startswith("https://")
+
+    def test_excludes_frontdoor_port(self, tmp_caddy_dir):
+        """Services proxying to port 8420 (frontdoor itself) are excluded."""
+        services = parse_caddy_configs(
+            main_config=tmp_caddy_dir / "Caddyfile",
+            conf_d=tmp_caddy_dir / "conf.d",
+        )
+        ports = [s["internal_port"] for s in services]
+        assert 8420 not in ports
+
+    def test_name_derived_from_filename(self, tmp_caddy_dir):
+        """Service names are title-cased words derived from the .caddy filename."""
+        services = parse_caddy_configs(
+            main_config=tmp_caddy_dir / "Caddyfile",
+            conf_d=tmp_caddy_dir / "conf.d",
+        )
+        names = {s["name"] for s in services}
+        assert "Dev Machine Monitor" in names
+        assert "Filebrowser" in names
+
+    def test_malformed_file_skipped(self, tmp_caddy_dir):
+        """A malformed .caddy file is silently skipped; valid files are still parsed."""
+        (tmp_caddy_dir / "conf.d" / "broken.caddy").write_text(
+            "this is not valid caddy syntax {\n"
+        )
+        services = parse_caddy_configs(
+            main_config=tmp_caddy_dir / "Caddyfile",
+            conf_d=tmp_caddy_dir / "conf.d",
+        )
+        assert len(services) == 2
+
+    def test_missing_conf_d_returns_empty(self, tmp_path):
+        """When conf_d directory does not exist, return an empty list."""
+        main_config = tmp_path / "Caddyfile"
+        main_config.write_text("")
+        services = parse_caddy_configs(
+            main_config=main_config,
+            conf_d=tmp_path / "nonexistent",
+        )
+        assert services == []
+
+
+class TestTcpProbe:
+    def test_success(self):
+        """tcp_probe returns True when connection succeeds."""
+        with patch("socket.create_connection") as mock_conn:
+            mock_conn.return_value.__enter__ = lambda s: s
+            mock_conn.return_value.__exit__ = lambda s, *a: False
+            result = tcp_probe("localhost", 8080)
+        assert result is True
+
+    def test_connection_refused(self):
+        """tcp_probe returns False when ConnectionRefusedError is raised."""
+        with patch("socket.create_connection", side_effect=ConnectionRefusedError):
+            result = tcp_probe("localhost", 9999)
+        assert result is False
+
+    def test_timeout(self):
+        """tcp_probe returns False when socket.timeout is raised."""
+        with patch("socket.create_connection", side_effect=socket.timeout):
+            result = tcp_probe("localhost", 8080, timeout=0.1)
+        assert result is False
+
+
+class TestOverlayManifests:
+    def test_manifest_found(self, tmp_path):
+        """overlay_manifests enriches a service when a matching manifest file exists."""
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        manifest_data = {
+            "name": "File Browser",
+            "description": "A web-based file manager",
+            "icon": "folder",
+        }
+        (manifest_dir / "filebrowser.json").write_text(json.dumps(manifest_data))
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, manifest_dir)
+
+        assert len(result) == 1
+        svc = result[0]
+        # Manifest fields merged in
+        assert svc["name"] == "File Browser"
+        assert svc["description"] == "A web-based file manager"
+        assert svc["icon"] == "folder"
+        # Original fields preserved
+        assert svc["external_url"] == "https://files.example.com"
+        assert svc["internal_port"] == 8445
+
+    def test_no_manifest_keeps_original(self, tmp_path):
+        """overlay_manifests leaves services unchanged when no manifest file exists."""
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, manifest_dir)
+
+        assert len(result) == 1
+        svc = result[0]
+        assert svc["name"] == "Filebrowser"
+        assert "description" not in svc
+
+    def test_malformed_json_skipped(self, tmp_path):
+        """overlay_manifests silently skips services whose manifest contains invalid JSON."""
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        (manifest_dir / "filebrowser.json").write_text("{not valid json}")
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, manifest_dir)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "Filebrowser"
+
+    def test_missing_manifest_dir_no_error(self, tmp_path):
+        """overlay_manifests does not raise when the manifest directory does not exist."""
+        nonexistent_dir = tmp_path / "does_not_exist"
+
+        services = [
+            {
+                "name": "Filebrowser",
+                "external_url": "https://files.example.com",
+                "internal_port": 8445,
+            }
+        ]
+        result = overlay_manifests(services, nonexistent_dir)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "Filebrowser"
+
+
+class TestScanProcesses:
+    SS_OUTPUT = (
+        "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+        'tcp   LISTEN 0      128    0.0.0.0:8441      0.0.0.0:*         users:(("uvicorn",pid=1234,fd=6))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:8445      0.0.0.0:*         users:(("python3",pid=2345,fd=7))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:8420      0.0.0.0:*         users:(("uvicorn",pid=3456,fd=8))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:3000      0.0.0.0:*         users:(("node",pid=4567,fd=9))\n'
+        'tcp   LISTEN 0      128    0.0.0.0:9200      0.0.0.0:*         users:(("java",pid=5000,fd=10))\n'
+    )
+
+    def _mock_run(self):
+        """Return a MagicMock simulating a successful subprocess.run result."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = self.SS_OUTPUT
+        return mock_result
+
+    def test_parses_ss_output(self):
+        """scan_processes returns an entry for port 9200 (java) when not excluded."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports=set())
+        ports = {r["port"] for r in results}
+        assert 9200 in ports
+
+    def test_filters_reserved_ports(self):
+        """scan_processes excludes ports in RESERVED_PORTS (e.g. 3000)."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports=set())
+        ports = {r["port"] for r in results}
+        assert 3000 not in ports
+
+    def test_filters_caddy_ports(self):
+        """scan_processes excludes ports passed in skip_ports (e.g. Caddy-proxied ports)."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports={8441, 8445})
+        ports = {r["port"] for r in results}
+        assert 8441 not in ports
+        assert 8445 not in ports
+
+    def test_filters_frontdoor_port(self):
+        """scan_processes always excludes port 8420 (frontdoor itself)."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports=set())
+        ports = {r["port"] for r in results}
+        assert 8420 not in ports
+
+    def test_extracts_process_name_and_pid(self):
+        """scan_processes returns correct name, port, and pid for each discovered process."""
+        with patch("frontdoor.discovery.subprocess.run", return_value=self._mock_run()):
+            results = scan_processes(skip_ports={8441, 8445})
+        assert len(results) == 1
+        entry = results[0]
+        assert entry["name"] == "java"
+        assert entry["port"] == 9200
+        assert entry["pid"] == 5000
+
+    def test_self_exclusion_uses_settings_port(self):
+        """scan_processes excludes settings.port, so changing it excludes the new port."""
+        ss_output = (
+            "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+            'tcp   LISTEN 0      128    0.0.0.0:9999      0.0.0.0:*         users:(("frontdoor",pid=7777,fd=5))\n'
+            'tcp   LISTEN 0      128    0.0.0.0:9200      0.0.0.0:*         users:(("java",pid=5000,fd=10))\n'
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ss_output
+
+        with (
+            patch("frontdoor.discovery.subprocess.run", return_value=mock_result),
+            patch("frontdoor.discovery.settings") as mock_settings,
+        ):
+            mock_settings.port = 9999
+            results = scan_processes(skip_ports=set())
+
+        ports = {r["port"] for r in results}
+        assert 9999 not in ports
+        assert 9200 in ports
