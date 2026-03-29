@@ -170,7 +170,7 @@
     .header-actions {
       display: flex;
       align-items: center;
-      gap: var(--space-xs);
+      gap: var(--space-md);
     }
 
     /* Sign Out button — Category C Inline Interactive */
@@ -212,6 +212,43 @@
     .btn-signout:focus-visible {
       outline: 2px solid var(--tint);
       outline-offset: 2px;
+    }
+
+    /* Header button tooltips */
+    .btn-refresh,
+    .btn-signout {
+      position: relative;
+    }
+
+    .btn-refresh::after,
+    .btn-signout::after {
+      content: attr(title);
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%) scale(0.95);
+      padding: 4px 8px;
+      background: var(--bg, #fff);
+      color: var(--label);
+      border: 0.5px solid var(--separator);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease, transform 120ms ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      z-index: 1000;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .btn-refresh:hover::after,
+      .btn-signout:hover::after {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+      }
     }
 
     /* ─── Main Content ─────────────────────────────────────────────────────── */
@@ -552,7 +589,7 @@
     function App() {
       const [data, setData] = useState(null);
       const [error, setError] = useState(null);
-      const hostname = window.location.hostname;
+      const hostname = window.location.hostname.split('.')[0];
 
       const fetchServices = useCallback(async () => {
         setError(null);
