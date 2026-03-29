@@ -7,9 +7,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from frontdoor.config import settings
 from frontdoor.routes import auth, services
 
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
 logger = logging.getLogger(__name__)
+logger.info("Frontdoor starting (log_level=%s)", settings.log_level)
 
 app = FastAPI(title="Frontdoor", docs_url=None, redoc_url=None)
 

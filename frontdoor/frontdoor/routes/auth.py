@@ -1,5 +1,6 @@
 """Auth endpoints: Caddy forward_auth validate and logout."""
 
+import logging
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -15,6 +16,8 @@ from frontdoor.auth import (
 from frontdoor.config import settings
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 
@@ -61,14 +64,17 @@ async def validate_ws(websocket: WebSocket) -> None:
     """
     token = websocket.cookies.get("frontdoor_session")
     if not token:
+        logger.warning("WS validate rejected: no session cookie")
         await websocket.close(code=4001)
         return
     username = validate_session_token(
         token, settings.secret_key, settings.session_timeout
     )
     if not username:
+        logger.warning("WS validate rejected: invalid or expired token")
         await websocket.close(code=4001)
         return
+    logger.info("WS validate accepted for user=%s", username)
     # Auth succeeded -- accept and send the username, then close.
     # Caddy's forward_auth reads the response headers on accept.
     await websocket.accept(headers=[(b"x-authenticated-user", username.encode())])
@@ -84,12 +90,15 @@ async def login(
 ) -> RedirectResponse:
     """Login endpoint: validates PAM credentials and issues a session cookie."""
     safe_next = _safe_next_url(next_url)
+    client = request.client.host if request.client else "unknown"
     if not authenticate_pam(username, password):
+        logger.warning("Login failed for user=%s client=%s", username, client)
         params = urlencode({"error": "1", "next": safe_next})
         return RedirectResponse(
             url=f"/login?{params}",
             status_code=303,
         )
+    logger.info("Login success for user=%s client=%s", username, client)
     token = create_session_token(username, settings.secret_key)
     response = RedirectResponse(url=safe_next, status_code=303)
     response.set_cookie(
@@ -107,6 +116,7 @@ async def login(
 @router.post("/api/auth/logout")
 async def logout() -> RedirectResponse:
     """Clear the session cookie and redirect to /login."""
+    logger.info("Logout")
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie(
         key="frontdoor_session",

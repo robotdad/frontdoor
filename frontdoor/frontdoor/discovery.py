@@ -51,7 +51,8 @@ def _parse_site_block(text: str, name: str) -> dict | None:
     site_addr = addr_match.group(1)
 
     # Locate the reverse_proxy directive and its target.
-    proxy_match = re.search(r"reverse_proxy\s+(\S+)", text)
+    # Skip named-matcher directives like "reverse_proxy @terminal ..."
+    proxy_match = re.search(r"reverse_proxy\s+(?!@)(\S+)", text)
     if not proxy_match:
         return None
     proxy_target = proxy_match.group(1)
@@ -104,7 +105,7 @@ def parse_caddy_configs(main_config: Path, conf_d: Path) -> list[dict]:
                 if result:
                     services.append(result)
         except Exception:
-            logger.debug("Failed to parse main Caddyfile: %s", main_config)
+            logger.warning("Failed to parse main Caddyfile: %s", main_config)
 
     # --- conf.d/*.caddy files -------------------------------------------------
     if not conf_d.exists():
@@ -118,7 +119,7 @@ def parse_caddy_configs(main_config: Path, conf_d: Path) -> list[dict]:
             if result:
                 services.append(result)
         except Exception:
-            logger.debug("Failed to parse Caddy config: %s", caddy_file)
+            logger.warning("Failed to parse Caddy config: %s", caddy_file)
 
     return services
 

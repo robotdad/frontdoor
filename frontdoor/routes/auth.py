@@ -1,5 +1,6 @@
 """Auth endpoints: Caddy forward_auth validate and logout."""
 
+import logging
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -10,6 +11,8 @@ from frontdoor.auth import authenticate_pam, create_session_token, require_auth
 from frontdoor.config import settings
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 
@@ -49,12 +52,15 @@ async def login(
 ) -> RedirectResponse:
     """Login endpoint: validates PAM credentials and issues a session cookie."""
     safe_next = _safe_next_url(next_url)
+    client = request.client.host if request.client else "unknown"
     if not authenticate_pam(username, password):
+        logger.warning("Login failed for user=%s client=%s", username, client)
         params = urlencode({"error": "1", "next": safe_next})
         return RedirectResponse(
             url=f"/login?{params}",
             status_code=303,
         )
+    logger.info("Login success for user=%s client=%s", username, client)
     token = create_session_token(username, settings.secret_key)
     response = RedirectResponse(url=safe_next, status_code=303)
     response.set_cookie(
@@ -72,6 +78,7 @@ async def login(
 @router.post("/api/auth/logout")
 async def logout() -> RedirectResponse:
     """Clear the session cookie and redirect to /login."""
+    logger.info("Logout")
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie(
         key="frontdoor_session",

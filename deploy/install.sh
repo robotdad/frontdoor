@@ -195,12 +195,20 @@ import /etc/caddy/conf.d/*.caddy
 EOF
 fi
 
+# Preserve LOG_LEVEL from existing env file if set, default to "info"
+LOG_LEVEL="info"
+if [ -f "$ENV_FILE" ]; then
+    EXISTING_LOG_LEVEL=$(grep '^FRONTDOOR_LOG_LEVEL=' "$ENV_FILE" | cut -d= -f2-)
+    [ -n "$EXISTING_LOG_LEVEL" ] && LOG_LEVEL="$EXISTING_LOG_LEVEL"
+fi
+
 # --- Write environment file ---
 echo "Writing environment file..."
 (umask 177; cat > "$ENV_FILE" <<EOF
 FRONTDOOR_SECRET_KEY=$SECRET_KEY
 FRONTDOOR_SECURE_COOKIES=$HTTPS
 FRONTDOOR_COOKIE_DOMAIN=$FQDN
+FRONTDOOR_LOG_LEVEL=$LOG_LEVEL
 EOF
 )
 
