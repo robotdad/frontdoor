@@ -591,6 +591,10 @@
       const [error, setError] = useState(null);
       const hostname = window.location.hostname.split('.')[0];
 
+      useEffect(() => {
+        document.title = `${hostname} frontdoor`;
+      }, []);
+
       const fetchServices = useCallback(async () => {
         setError(null);
         try {

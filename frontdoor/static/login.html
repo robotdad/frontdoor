@@ -354,8 +354,10 @@
 
   <script>
     (function () {
-      // Display the current hostname
+      // Display the current hostname and set tab title
+      var shortname = window.location.hostname.split('.')[0];
       document.getElementById('hostName').textContent = window.location.hostname;
+      document.title = shortname + ' frontdoor \u2014 Sign In';
 
       var params = new URLSearchParams(window.location.search);
 
