@@ -193,3 +193,32 @@ sudo deploy/update.sh            # incremental update (rsync + restart)
 | `context/conventions.md` | Port allocation, cookie, header, and WebSocket conventions |
 | `context/architecture.md` | System topology, auth flows, discovery pipeline |
 | `bundle.md` | Amplifier bundle manifest with skills and templates table |
+
+## Testing
+
+Three complementary testing layers cover frontdoor at different fidelity levels:
+
+### 1. Python Backend Tests (pytest)
+
+Fast unit and integration tests for auth logic, service discovery, config, routes, and API behavior. PAM is always mocked so tests run without a real Linux user database.
+
+```bash
+uv run pytest          # runs all 14+ test files
+uv run pytest -v       # verbose output
+```
+
+Tests live in `tests/` and use `httpx.TestClient` to hit the FastAPI app without a live server.
+
+### 2. Python Static-Analysis Tests of JS/CSS Source
+
+Several test files in `tests/` read the static frontend files (`static/index.html`, `static/login.html`) as plain text and assert that key patterns, class names, and structural conventions are present. This catches silent removals of required UI elements without running a browser.
+
+Examples: `test_index_html.py`, `test_login_html.py` — they `open()` the file and `assert "pattern" in content`.
+
+### 3. Browser-Based Behavioral Tests (Amplifier Browser Agents)
+
+Full end-to-end tests that drive a real browser against a running dev server on port 58080. These verify JavaScript rendering, Preact component behavior, the complete login/logout flow, and visual layout.
+
+Browser tests are expressed as plain-English scenarios delegated to `browser-tester:browser-operator` or via the `playwright` skill. They are not `pytest` functions.
+
+See **[tests/BROWSER_TESTING.md](BROWSER_TESTING.md)** for the full browser testing guide: when to use browser tests, prerequisites, how to run scenarios, the baseline-before/verify-after pattern, and how to write new scenarios.
