@@ -369,6 +369,41 @@ systemctl reload caddy   # Linux
 # brew services reload caddy   # macOS
 ```
 
+#### WebSocket and Persistent Connection Support
+
+If the app uses WebSocket endpoints (e.g. interactive terminal, real-time updates), Caddy's `forward_auth` may not correctly proxy the connection after validation (Caddy 2.6 limitation). The fix is a `handle` block that routes WebSocket paths **before** `forward_auth`:
+
+```caddy
+# /etc/caddy/conf.d/<APPNAME>.caddy
+<FQDN>:<PORT> {
+    tls <CERT_PATH> <KEY_PATH>
+
+    # WebSocket paths bypass forward_auth (Caddy 2.6 limitation)
+    handle /api/<websocket-path>* {
+        reverse_proxy localhost:<INTERNAL_PORT>
+    }
+
+    # Everything else goes through frontdoor auth
+    handle {
+        forward_auth localhost:8420 {
+            uri /api/auth/validate
+            copy_headers X-Authenticated-User
+        }
+        reverse_proxy localhost:<INTERNAL_PORT>
+    }
+}
+```
+
+When bypassing `forward_auth`, the app's WebSocket endpoints **cannot** rely on the `X-Authenticated-User` header. The app needs its own auth for those endpoints. The established pattern is a **cookie bridge**:
+
+1. The app's `/api/auth/me` endpoint detects frontdoor mode (`X-Authenticated-User` header present, no local session cookie)
+2. It issues an app-level session cookie to the browser
+3. The WebSocket endpoint validates that cookie independently via `resolve_authenticated_user()` which checks the header first, then the cookie
+
+frontdoor itself has an explicit `@router.websocket("/api/auth/validate")` handler (`validate_ws`) that handles WebSocket Upgrade requests from `forward_auth`. This handler reads the `frontdoor_session` cookie from the WebSocket handshake headers before accepting, then either accepts (success) or closes with code 4001 (401-equivalent). Without this handler, FastAPI's `StaticFiles` catch-all would crash on the non-HTTP ASGI scope.
+
+See filebrowser's terminal implementation for the complete reference pattern: Caddy bypass, cookie bridge, and dual-mode auth.
+
 ---
 
 ### 3c. Frontdoor Manifest

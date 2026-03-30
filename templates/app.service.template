@@ -10,6 +10,7 @@ WorkingDirectory=APPNAME_INSTALL_DIR
 ExecStart=APPNAME_INSTALL_DIR/.venv/bin/uvicorn APPNAME_MODULE:app --host 127.0.0.1 --port APPNAME_INTERNAL_PORT
 Restart=always
 RestartSec=5
+EnvironmentFile=APPNAME_INSTALL_DIR/APPNAME_SLUG.env
 
 [Install]
 WantedBy=multi-user.target

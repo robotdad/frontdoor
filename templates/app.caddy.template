@@ -1,6 +1,18 @@
 APPNAME_FQDN:APPNAME_PORT {
     tls CERT_PATH KEY_PATH
 
+    # If your app uses WebSocket endpoints, route them BEFORE forward_auth.
+    # Caddy 2.6 has a limitation where WebSocket connections may not proxy
+    # correctly after forward_auth validation. Use a handle block to bypass:
+    #
+    # handle /api/<websocket-path>* {
+    #     reverse_proxy localhost:APPNAME_INTERNAL_PORT
+    # }
+    #
+    # When bypassing forward_auth, the app's WebSocket endpoints must handle
+    # their own auth (e.g. via a session cookie issued by a cookie bridge).
+    # See filebrowser's terminal implementation for the reference pattern.
+
     forward_auth localhost:8420 {
         uri /api/auth/validate
         copy_headers X-Authenticated-User

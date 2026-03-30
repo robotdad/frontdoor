@@ -35,9 +35,31 @@ echo "  FQDN: $FQDN"
 SHORT_HOSTNAME=$(hostname -s)
 echo "  Short hostname: $SHORT_HOSTNAME"
 
+SELF_SIGNED_DIR="/etc/ssl/self-signed"
+
+# --- Three-tier TLS detection ---
 CERT_PATH="$CERT_DIR/$FQDN.crt"
 KEY_PATH="$CERT_DIR/$FQDN.key"
+SELF_CERT_PATH="$SELF_SIGNED_DIR/$FQDN.crt"
+SELF_KEY_PATH="$SELF_SIGNED_DIR/$FQDN.key"
+
 if [ -f "$CERT_PATH" ] && [ -f "$KEY_PATH" ]; then
+    echo "  TLS: Tailscale certs found"
+    HTTPS=true
+elif [ -f "$SELF_CERT_PATH" ] && [ -f "$SELF_KEY_PATH" ]; then
+    echo "  TLS: Self-signed certs found"
+    CERT_PATH="$SELF_CERT_PATH"
+    KEY_PATH="$SELF_KEY_PATH"
+    HTTPS=true
+else
+    echo "  TLS: No certs found — generating self-signed certificate"
+    mkdir -p "$SELF_SIGNED_DIR"
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout "$SELF_SIGNED_DIR/$FQDN.key" \
+        -out "$SELF_SIGNED_DIR/$FQDN.crt" \
+        -subj "/CN=$FQDN" 2>/dev/null
+    CERT_PATH="$SELF_SIGNED_DIR/$FQDN.crt"
+    KEY_PATH="$SELF_SIGNED_DIR/$FQDN.key"
     HTTPS=true
 fi
 
@@ -57,6 +79,23 @@ echo "Setting up Python environment..."
 python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install --quiet "$INSTALL_DIR"
+
+# --- Generate environment file ---
+echo "Writing environment file..."
+ENV_FILE="$INSTALL_DIR/${APP_SLUG}.env"
+if [ ! -f "$ENV_FILE" ]; then
+    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    cat > "$ENV_FILE" <<EOF
+${APP_SLUG^^}_SECRET_KEY=$SECRET_KEY
+${APP_SLUG^^}_SECURE_COOKIES=$HTTPS
+${APP_SLUG^^}_LOG_LEVEL=info
+EOF
+    chmod 600 "$ENV_FILE"
+    chown "$USER:$USER" "$ENV_FILE"
+    echo "  Generated new secret key"
+else
+    echo "  Keeping existing environment file"
+fi
 
 # --- Create Caddy conf.d directory ---
 echo "Creating Caddy conf.d directory..."
@@ -93,6 +132,8 @@ fi
 # --- Write systemd unit ---
 echo "Installing systemd unit..."
 sed \
+    -e "s|APPNAME_DESCRIPTION|$APP_DISPLAY_NAME|g" \
+    -e "s|APPNAME_SLUG|$APP_SLUG|g" \
     -e "s|APPNAME_USER|$USER|g" \
     -e "s|APPNAME_INSTALL_DIR|$INSTALL_DIR|g" \
     -e "s|APPNAME_INTERNAL_PORT|$APP_INTERNAL_PORT|g" \

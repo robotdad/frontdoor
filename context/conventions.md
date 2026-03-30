@@ -37,6 +37,38 @@ forward_auth localhost:8420 {
 
 Apps behind `forward_auth` do not need their own login flow — every request that reaches them has already been authenticated. The header provides the verified identity.
 
+### Protocol Support: HTTP and WebSocket
+
+frontdoor's `/api/auth/validate` endpoint handles both HTTP and WebSocket protocols. This matters because Caddy's `forward_auth` sends the full incoming request — including WebSocket Upgrade requests — to the validate endpoint.
+
+**HTTP** works transparently through `forward_auth`.
+
+**WebSocket** requires an explicit `@router.websocket("/api/auth/validate")` handler in frontdoor. Without it, FastAPI's `StaticFiles` catch-all receives the WebSocket ASGI scope and crashes. The handler reads the session cookie from handshake headers before accept, then either accepts (with `X-Authenticated-User` header) or closes with code 4001 (401-equivalent).
+
+### WebSocket Bypass Pattern for Downstream Apps
+
+Caddy 2.6 has a limitation where WebSocket connections may not proxy correctly after `forward_auth` validation. When a downstream app needs WebSocket support (e.g. terminal, real-time features), use a Caddy `handle` block to route WebSocket paths before `forward_auth`:
+
+```caddy
+# Bypass forward_auth for WebSocket paths
+handle /api/<websocket-path>* {
+    reverse_proxy localhost:<app-port>
+}
+
+# Standard auth for everything else
+handle {
+    forward_auth localhost:8420 {
+        uri /api/auth/validate
+        copy_headers X-Authenticated-User
+    }
+    reverse_proxy localhost:<app-port>
+}
+```
+
+When using this bypass, the app's WebSocket endpoints cannot rely on `X-Authenticated-User`. Instead, use the **cookie bridge pattern**: the app's `/api/auth/me` endpoint detects frontdoor mode (header present, no local session cookie) and issues an app-level session cookie. The WebSocket endpoint validates that cookie independently.
+
+See filebrowser's terminal implementation for the reference pattern.
+
 ### Service Discovery via `conf.d/` + Manifests
 
 frontdoor discovers running services two ways:

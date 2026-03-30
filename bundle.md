@@ -30,3 +30,4 @@ includes:
 | `signout-link.html.template` | Reusable sign-out link snippet that posts to `/api/auth/logout` with the shared `frontdoor_session` cookie. Embed in any app's UI. |
 
 @frontdoor:context/conventions.md
+@frontdoor:context/architecture.md
