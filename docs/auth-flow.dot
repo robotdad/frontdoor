@@ -1,0 +1,162 @@
+
+digraph frontdoor_auth_flow {
+    // ═══════════════════════════════════════════════════════════════════════
+    // Frontdoor — Authentication Flow
+    // HTTP forward_auth  ·  WebSocket forward_auth  ·  Login
+    //
+    // KEY INSIGHT: WebSocket auth requires an explicit @router.websocket
+    // handler because Caddy sends the full WS Upgrade through forward_auth.
+    // Without it, FastAPI's StaticFiles catch-all crashes on non-HTTP scopes.
+    // ═══════════════════════════════════════════════════════════════════════
+    label="Frontdoor — Authentication Flow  (HTTP + WebSocket)"
+    labelloc=t
+    rankdir=TB
+    compound=true
+    fontname="Helvetica"
+    fontsize=14
+    nodesep=0.5
+    ranksep=0.7
+
+    node [fontname="Helvetica" fontsize=10 style="rounded,filled" shape=box]
+    edge [fontname="Helvetica" fontsize=9  color="#555555" arrowsize=0.8]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // HTTP AUTH FLOW — blue  (left column)
+    // GET /api/auth/validate  →  require_auth dependency
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_http_flow {
+        label="HTTP Auth Flow  (forward_auth GET /api/auth/validate)"
+        style="filled"
+        fillcolor="#E3F2FD"
+        color="#1E88E5"
+        penwidth=2
+
+        h_browser   [label="Browser\nHTTP Request"              shape=parallelogram fillcolor="#BBDEFB"]
+        h_caddy     [label="Caddy\n(reverse proxy)"             fillcolor="#90CAF9"]
+        h_fwauth    [label="forward_auth\nGET /api/auth/validate" fillcolor="#90CAF9"]
+        h_require   [label="require_auth()\nreads frontdoor_session cookie" fillcolor="#BBDEFB"]
+        h_validate  [label="validate_session_token()\n(itsdangerous TimestampSigner)" shape=diamond fillcolor="#FFF9C4"]
+        h_200       [label="200 OK\n+ X-Authenticated-User: <username>" shape=ellipse fillcolor="#C8E6C9"]
+        h_401       [label="401 Unauthorized"                   shape=ellipse fillcolor="#FFCDD2"]
+        h_copy      [label="Caddy copies\nX-Authenticated-User header\nto proxied request" fillcolor="#90CAF9"]
+        h_redir     [label="Caddy → redirect /login"            fillcolor="#FFCCBC" style="rounded,filled,dashed"]
+        h_downstream [label="Downstream App\n(receives authed request)" shape=parallelogram fillcolor="#E8F5E9"]
+
+        h_browser  -> h_caddy   [label="GET /resource" penwidth=1.5]
+        h_caddy    -> h_fwauth  [label="intercept"]
+        h_fwauth   -> h_require [label="injects"]
+        h_require  -> h_validate
+        h_validate -> h_200     [label="valid token" color="#43A047" fontcolor="#43A047"]
+        h_validate -> h_401     [label="invalid / expired" color="#E53935" fontcolor="#E53935"]
+        h_200      -> h_copy    [label="passes auth"]
+        h_copy     -> h_downstream [label="reverse_proxy" penwidth=1.5]
+        h_401      -> h_redir   [label="Caddy handles"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // WEBSOCKET AUTH FLOW — purple  (right column)
+    // WS Upgrade hits forward_auth → explicit @router.websocket handler
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_ws_flow {
+        label="WebSocket Auth Flow  (forward_auth WS /api/auth/validate)"
+        style="filled"
+        fillcolor="#F3E5F5"
+        color="#8E24AA"
+        penwidth=2
+
+        w_browser    [label="Browser\nWebSocket  (ws://...)"    shape=parallelogram fillcolor="#E1BEE7"]
+        w_caddy      [label="Caddy\n(reverse proxy)"            fillcolor="#CE93D8"]
+        w_fwauth     [label="forward_auth\nWS Upgrade → /api/auth/validate" fillcolor="#CE93D8"]
+        w_handler    [label="validate_ws()\n@router.websocket(\"/api/auth/validate\")\n(explicit handler required!)" fillcolor="#E1BEE7"]
+        w_cookie     [label="Read frontdoor_session cookie\nfrom WS handshake headers\n(BEFORE websocket.accept())" fillcolor="#E1BEE7"]
+        w_validate   [label="validate_session_token()\n(itsdangerous TimestampSigner)" shape=diamond fillcolor="#FFF9C4"]
+        w_accept     [label="websocket.accept(\n  headers=[(X-Authenticated-User, username)]\n)\nwebsocket.close()" shape=ellipse fillcolor="#C8E6C9"]
+        w_close_fail [label="websocket.close(code=4001)\n(4001 = 401-equivalent\nCaddy treats as auth failure)" shape=ellipse fillcolor="#FFCDD2"]
+        w_proxy      [label="Caddy treats accept as 200\n→ reverse_proxy WebSocket\nto upstream app" fillcolor="#CE93D8"]
+        w_downstream [label="Downstream App\n(receives WebSocket connection)" shape=parallelogram fillcolor="#E8F5E9"]
+
+        w_browser   -> w_caddy      [label="WS Upgrade" penwidth=1.5]
+        w_caddy     -> w_fwauth     [label="intercept\n(full Upgrade forwarded)"]
+        w_fwauth    -> w_handler    [label="ASGI scope:\nwebsocket"]
+        w_handler   -> w_cookie
+        w_cookie    -> w_validate
+        w_validate  -> w_accept     [label="valid token" color="#43A047" fontcolor="#43A047"]
+        w_validate  -> w_close_fail [label="invalid / expired" color="#E53935" fontcolor="#E53935"]
+        w_accept    -> w_proxy      [label="accept = 200 to Caddy"]
+        w_proxy     -> w_downstream [label="WS proxied" penwidth=1.5]
+    }
+
+    // ── Keep the two flows side by side at the same rank ────────────────
+    h_browser -> w_browser [style=invis]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // WHY WEBSOCKET NEEDS SPECIAL HANDLING — annotation
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_ws_notes {
+        label="Why WebSocket Needs a Dedicated Handler"
+        style="filled"
+        fillcolor="#FFF8E1"
+        color="#F57F17"
+        penwidth=2
+
+        ws_note [shape=note fillcolor="#FFF9C4" fontsize=9
+                 label="1. Caddy's forward_auth sends the COMPLETE WS Upgrade request\n   to the auth endpoint — including the Upgrade: websocket header.\n\n2. Without an explicit @router.websocket handler, FastAPI routes\n   the Upgrade to StaticFiles. StaticFiles calls the ASGI app\n   with scope[type]='websocket', which crashes (expects 'http').\n\n3. The session cookie is present in the WS handshake headers\n   BEFORE accept() is called — no accept required to read it.\n\n4. close(code=4001) is the WebSocket equivalent of HTTP 401.\n   Caddy sees a connection close and treats it as auth failure.\n\n5. websocket.accept(headers=[...]) propagates X-Authenticated-User\n   back to Caddy, which copies it to the upstream WS proxy."]
+
+        ws_note -> ws_note [style=invis]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LOGIN FLOW — orange  (password → PAM → session cookie)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_login_flow {
+        label="Login Flow  (POST /api/auth/login)"
+        style="filled"
+        fillcolor="#FFF3E0"
+        color="#FB8C00"
+        penwidth=2
+
+        l_browser   [label="Browser\nPOST /api/auth/login\n{username, password}" shape=parallelogram fillcolor="#FFE0B2"]
+        l_route     [label="auth_routes\n(routes/auth.py)"                        fillcolor="#FFCC80"]
+        l_pam       [label="authenticate_pam(username, password)"                 fillcolor="#FFCC80"]
+        l_pam_sys   [label="Linux PAM\n(/etc/pam.d — validates /etc/shadow)"      shape=cylinder fillcolor="#FFCC80"]
+        l_decision  [label="PAM result"  shape=diamond fillcolor="#FFF9C4"]
+        l_token     [label="create_session_token(username)\n(itsdangerous TimestampSigner\n→ signed + timestamped)" fillcolor="#FFE0B2"]
+        l_cookie    [label="Set-Cookie: frontdoor_session=<token>\nhttponly, secure, samesite=strict\nmax-age: 30 days" shape=note fillcolor="#FFF9C4"]
+        l_fail      [label="401 Unauthorized\n{detail: 'Invalid credentials'}"    shape=ellipse fillcolor="#FFCDD2"]
+
+        l_browser  -> l_route    [label="POST" penwidth=1.5]
+        l_route    -> l_pam
+        l_pam      -> l_pam_sys  [label="PAM call"]
+        l_pam_sys  -> l_decision [label="result"]
+        l_decision -> l_token    [label="authenticated" color="#43A047" fontcolor="#43A047"]
+        l_decision -> l_fail     [label="rejected" color="#E53935" fontcolor="#E53935"]
+        l_token    -> l_cookie   [label="set in response"]
+    }
+
+    // ── Login result feeds back to HTTP / WS validation ─────────────────
+    l_cookie -> h_require [label="cookie used on\nnext request" style=dashed color="#888888" constraint=false]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LEGEND
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_legend {
+        label="Legend"
+        style="filled"
+        fillcolor="#F5F5F5"
+        color="#9E9E9E"
+        fontsize=10
+        node [fontsize=9 width=1.8]
+
+        Lh  [label="HTTP Auth Flow"      fillcolor="#BBDEFB"]
+        Lws [label="WebSocket Auth Flow" fillcolor="#E1BEE7"]
+        Ll  [label="Login Flow"          fillcolor="#FFE0B2"]
+        Ld  [label="Decision"            shape=diamond fillcolor="#FFF9C4"]
+        Lo  [label="Success outcome"     shape=ellipse fillcolor="#C8E6C9"]
+        Lf  [label="Failure outcome"     shape=ellipse fillcolor="#FFCDD2"]
+        Le  [label="External system"     shape=parallelogram fillcolor="#ECEFF1"]
+        Ln  [label="Annotation"          shape=note fillcolor="#FFF9C4"]
+        Ldb [label="System / Store"      shape=cylinder fillcolor="#FFCC80"]
+
+        Lh -> Lws -> Ll -> Ld -> Lo -> Lf -> Le -> Ln -> Ldb [style=invis]
+    }
+}

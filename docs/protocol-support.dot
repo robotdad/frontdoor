@@ -1,0 +1,174 @@
+
+digraph frontdoor_protocol_support {
+    // ═══════════════════════════════════════════════════════════════════════
+    // Frontdoor — Protocol Traversal Patterns
+    // Reference diagram: how different protocols traverse the
+    // Caddy → frontdoor → app chain, and how to enable new ones.
+    //
+    // PATH 1: Standard HTTP  — works out of the box
+    // PATH 2: WebSocket      — requires explicit @router.websocket handler
+    // PATH 3: Future protos  — pattern guidance for new integrations
+    // ═══════════════════════════════════════════════════════════════════════
+    label="Frontdoor — Protocol Traversal Patterns"
+    labelloc=t
+    rankdir=TB
+    compound=true
+    fontname="Helvetica"
+    fontsize=14
+    nodesep=0.5
+    ranksep=0.75
+
+    node [fontname="Helvetica" fontsize=10 style="rounded,filled" shape=box]
+    edge [fontname="Helvetica" fontsize=9  color="#555555" arrowsize=0.8]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PATH 1: STANDARD HTTP — green  (works out of the box)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_http_path {
+        label="Path 1 — Standard HTTP  (works out of the box)"
+        style="filled"
+        fillcolor="#E8F5E9"
+        color="#2E7D32"
+        penwidth=2
+
+        p1_req      [label="HTTP Request\n(any method)"                     shape=parallelogram fillcolor="#C8E6C9"]
+        p1_caddy    [label="Caddy\n(receives request)"                      fillcolor="#A5D6A7"]
+        p1_fwauth   [label="forward_auth block\nGET /api/auth/validate"     fillcolor="#A5D6A7"]
+        p1_validate [label="require_auth() dependency\n→ validate_session_token()"  fillcolor="#C8E6C9"]
+        p1_200      [label="200 OK\n+ X-Authenticated-User header"          shape=ellipse fillcolor="#C8E6C9"]
+        p1_copy     [label="Caddy copies header\n→ reverse_proxy to app"    fillcolor="#A5D6A7"]
+        p1_app      [label="App receives request\nwith X-Authenticated-User" shape=parallelogram fillcolor="#C8E6C9"]
+
+        p1_req     -> p1_caddy   [penwidth=1.5]
+        p1_caddy   -> p1_fwauth  [label="intercept"]
+        p1_fwauth  -> p1_validate
+        p1_validate -> p1_200   [label="valid"]
+        p1_200     -> p1_copy
+        p1_copy    -> p1_app    [penwidth=1.5]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PATH 2: WEBSOCKET — yellow  (requires explicit handler)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_ws_path {
+        label="Path 2 — WebSocket  (requires @router.websocket handler)"
+        style="filled"
+        fillcolor="#FFFDE7"
+        color="#F57F17"
+        penwidth=2
+
+        p2_req      [label="WS Upgrade Request"                             shape=parallelogram fillcolor="#FFF9C4"]
+        p2_caddy    [label="Caddy\n(receives WS Upgrade)"                   fillcolor="#FFF176"]
+        p2_fwauth   [label="forward_auth block\nWS /api/auth/validate\n(full Upgrade forwarded)" fillcolor="#FFF176"]
+        p2_handler  [label="validate_ws()\n@router.websocket  ← explicit!\n(without this: StaticFiles crash)" fillcolor="#FFF9C4"]
+        p2_cookie   [label="Read cookie from\nhandshake headers (pre-accept)" fillcolor="#FFF9C4"]
+        p2_accept   [label="accept(headers=[X-Auth-User])\n+ close()\n(Caddy sees accept = 200)" shape=ellipse fillcolor="#C8E6C9"]
+        p2_proxy    [label="Caddy proxies WS\nto upstream app"              fillcolor="#FFF176"]
+        p2_app      [label="App receives\nWebSocket connection"             shape=parallelogram fillcolor="#FFF9C4"]
+        p2_note     [label="NOTE: If the app also uses forward_auth\nat its own level, it may need a cookie\nbridge for WS (app-level auth)" shape=note fillcolor="#FFF9C4"]
+
+        p2_req     -> p2_caddy   [penwidth=1.5]
+        p2_caddy   -> p2_fwauth  [label="intercept"]
+        p2_fwauth  -> p2_handler [label="ASGI scope=websocket"]
+        p2_handler -> p2_cookie
+        p2_cookie  -> p2_accept  [label="valid"]
+        p2_accept  -> p2_proxy   [label="accept signals 200"]
+        p2_proxy   -> p2_app     [penwidth=1.5]
+        p2_proxy   -> p2_note    [style=dashed color="#888888"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PATH 3: FUTURE PROTOCOLS — red/dashed  (pattern guidance)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_future_path {
+        label="Path 3 — Future / Unverified Protocols  (pattern guidance)"
+        style="dashed,filled"
+        fillcolor="#FFEBEE"
+        color="#C62828"
+        penwidth=2
+
+        p3_sse   [label="SSE (Server-Sent Events)\nExpected: HTTP forward_auth works\nTest: Caddy SSE passthrough + long-lived" fillcolor="#FFCDD2" style="rounded,filled,dashed"]
+        p3_grpc  [label="gRPC\nMay need handle block bypass\n(like WS terminal pattern)" fillcolor="#FFCDD2" style="rounded,filled,dashed"]
+        p3_h2    [label="HTTP/2 Streams\nCaddy handles transparently\nforward_auth should work" fillcolor="#FFCDD2" style="rounded,filled,dashed"]
+
+        p3_sse  -> p3_grpc -> p3_h2 [style=invis]
+    }
+
+    // ── Spacer to keep paths aligned horizontally ────────────────────────
+    p1_req -> p2_req [style=invis]
+    p2_req -> p3_sse [style=invis ltail=cluster_ws_path lhead=cluster_future_path]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DECISION FLOWCHART — how to add support for a new protocol
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_decision {
+        label="Decision Flow — Adding a New Protocol"
+        style="filled"
+        fillcolor="#F3E5F5"
+        color="#6A1B9A"
+        penwidth=2
+
+        d_start      [label="New Protocol\nto Support"                      shape=ellipse fillcolor="#E1BEE7"]
+        d_q1         [label="Does Caddy forward_auth\npass the protocol correctly?"  shape=diamond fillcolor="#CE93D8"]
+        d_std        [label="Standard path:\nAdd route, no special handling"        fillcolor="#C8E6C9"]
+        d_q2         [label="Does the protocol need\na persistent connection?"       shape=diamond fillcolor="#CE93D8"]
+        d_bypass     [label="Add Caddy handle block\nto bypass forward_auth\n(before forward_auth block)" fillcolor="#FFE0B2"]
+        d_bridge     [label="Implement cookie bridge\nfor app-level auth\n(app validates frontdoor cookie)" fillcolor="#FFE0B2"]
+        d_handler    [label="Add explicit protocol handler\nin frontdoor routes\n(like validate_ws)" fillcolor="#FFE0B2"]
+        d_debug      [label="Debug Caddy config\n(likely a header / scope issue)"   fillcolor="#FFCDD2" style="rounded,filled,dashed"]
+
+        d_start  -> d_q1
+        d_q1     -> d_std    [label="YES — works as-is" color="#2E7D32" fontcolor="#2E7D32"]
+        d_q1     -> d_q2     [label="NO — needs work" color="#C62828" fontcolor="#C62828"]
+        d_q2     -> d_bypass [label="YES — persistent\n(WS, gRPC, SSE)" color="#F57F17" fontcolor="#F57F17"]
+        d_q2     -> d_debug  [label="NO — stateless" color="#C62828" fontcolor="#C62828"]
+        d_bypass -> d_bridge
+        d_bridge -> d_handler
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CADDY CONFIG PATTERNS — annotation reference
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_caddy_config {
+        label="Caddy Config Patterns"
+        style="filled"
+        fillcolor="#E3F2FD"
+        color="#1565C0"
+        penwidth=2
+
+        cfg_standard [shape=note fillcolor="#BBDEFB" fontsize=9
+                      label="# Standard path (HTTP, SSE, HTTP/2)\nforward_auth localhost:8420 {\n    uri /api/auth/validate\n    copy_headers X-Authenticated-User\n}"]
+
+        cfg_bypass [shape=note fillcolor="#FFF9C4" fontsize=9
+                    label="# Bypass pattern (WebSocket, gRPC, etc.)\n# Place BEFORE forward_auth in Caddyfile\nhandle /api/<protocol-path>* {\n    reverse_proxy localhost:<app-port>\n}\n\n# WebSocket terminal handler example:\nhandle /terminal* {\n    reverse_proxy localhost:8447\n}"]
+
+        cfg_standard -> cfg_bypass [label="vs." style=dashed arrowhead=none color="#888888"]
+    }
+
+    // ── Connect decision tree to config examples ─────────────────────────
+    d_bypass -> cfg_bypass [label="use this pattern" style=dashed color="#888888" constraint=false]
+    d_std    -> cfg_standard [label="use this pattern" style=dashed color="#888888" constraint=false]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LEGEND
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_legend {
+        label="Legend"
+        style="filled"
+        fillcolor="#F5F5F5"
+        color="#9E9E9E"
+        fontsize=10
+        node [fontsize=9 width=2.2]
+
+        Lhttp  [label="HTTP — works OOB"           fillcolor="#A5D6A7"]
+        Lws    [label="WebSocket — handler req'd"  fillcolor="#FFF176"]
+        Lfut   [label="Future — unverified"        fillcolor="#FFCDD2" style="rounded,filled,dashed"]
+        Ldec   [label="Decision / branch"          shape=diamond fillcolor="#CE93D8"]
+        Lok    [label="Success / standard path"    shape=ellipse fillcolor="#C8E6C9"]
+        Lwarn  [label="Needs config work"          fillcolor="#FFE0B2"]
+        Lann   [label="Config annotation"          shape=note fillcolor="#BBDEFB"]
+        Lext   [label="External actor"             shape=parallelogram fillcolor="#ECEFF1"]
+
+        Lhttp -> Lws -> Lfut -> Ldec -> Lok -> Lwarn -> Lann -> Lext [style=invis]
+    }
+}

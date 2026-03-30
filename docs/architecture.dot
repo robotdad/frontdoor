@@ -1,0 +1,195 @@
+
+digraph frontdoor_architecture {
+    // ═══════════════════════════════════════════════════════════════════════
+    // Frontdoor — System Architecture Overview
+    // Developer-host dashboard & shared authentication gateway
+    // Python FastAPI · Caddy reverse proxy · PAM authentication
+    // ═══════════════════════════════════════════════════════════════════════
+    label="Frontdoor — System Architecture"
+    labelloc=t
+    rankdir=TB
+    compound=true
+    fontname="Helvetica"
+    fontsize=14
+    nodesep=0.55
+    ranksep=0.80
+
+    node [fontname="Helvetica" fontsize=11 style="rounded,filled" shape=box]
+    edge [fontname="Helvetica" fontsize=10 color="#555555" arrowsize=0.8]
+
+    // ── External entry point ────────────────────────────────────────────
+    user [label="Browser / User" shape=parallelogram fillcolor="#ECEFF1" color="#607D8B" penwidth=1.5]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INFRASTRUCTURE — indigo/blue  (Tailscale → Caddy → Uvicorn)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_infra {
+        label="Infrastructure"
+        style="filled"
+        fillcolor="#E8EAF6"
+        color="#5C6BC0"
+        penwidth=2
+
+        tailscale [label="Tailscale\n(VPN mesh — optional)"   fillcolor="#C5CAE9"]
+        caddy     [label="Caddy\n(reverse proxy, TLS\nport 443)" fillcolor="#C5CAE9"]
+        uvicorn   [label="Uvicorn\n(ASGI — 127.0.0.1:8420)"   fillcolor="#C5CAE9"]
+        systemd   [label="systemd" shape=component             fillcolor="#9FA8DA"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FRONTEND — green  (StaticFiles served by FastAPI)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_frontend {
+        label="Frontend  (FastAPI StaticFiles)"
+        style="filled"
+        fillcolor="#E8F5E9"
+        color="#43A047"
+        penwidth=2
+
+        index_html    [label="index.html\n(dashboard SPA)"  fillcolor="#C8E6C9"]
+        login_html    [label="login.html\n(auth form)"      fillcolor="#C8E6C9"]
+        static_assets [label="Static Assets\n(/static/*)"  fillcolor="#C8E6C9"]
+
+        // SPA redirects unauthenticated users to login
+        index_html -> login_html    [label="redirect if\nnot authenticated" style=dashed color="#888888"]
+        login_html -> static_assets [label="loads" style=dashed color="#888888"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // BACKEND — blue  (FastAPI app, routers)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_backend {
+        label="Backend — FastAPI  (main.py)"
+        style="filled"
+        fillcolor="#E3F2FD"
+        color="#1E88E5"
+        penwidth=2
+
+        fastapi_app [label="FastAPI App  (main.py)\nException handler\nStaticFiles mount\nRouter includes" fillcolor="#BBDEFB"]
+
+        auth_routes [label="Auth Routes  (routes/auth.py)\nPOST /api/auth/login\nPOST /api/auth/logout\nGET  /api/auth/validate   (HTTP)\nWS   /api/auth/validate   (WebSocket)" fillcolor="#BBDEFB"]
+
+        services_route [label="Services Route  (routes/services.py)\nGET /api/services → discovered list" fillcolor="#BBDEFB"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DISCOVERY PIPELINE — teal  (Caddy config, manifests, TCP probing)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_discovery {
+        label="Discovery Pipeline"
+        style="filled"
+        fillcolor="#E0F2F1"
+        color="#00897B"
+        penwidth=2
+
+        caddy_parser     [label="Caddy Config Parser\n/etc/caddy/conf.d/*.caddy\n(virtual host definitions)" fillcolor="#B2DFDB"]
+        manifest_overlay [label="Manifest Overlay\n/opt/frontdoor/manifests/*.json\n(app metadata, icons)" fillcolor="#B2DFDB"]
+        tcp_prober       [label="TCP Port Prober\n(scans 8440+ range\nfor unregistered procs)" fillcolor="#B2DFDB"]
+        proc_scanner     [label="Process Scanner\n(correlates listening ports\nwith running processes)" fillcolor="#B2DFDB"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AUTH CORE — purple  (PAM, sessions, dependencies)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_auth_core {
+        label="Auth Core"
+        style="filled"
+        fillcolor="#F3E5F5"
+        color="#8E24AA"
+        penwidth=2
+
+        authenticate_pam [label="authenticate_pam()\n(Linux PAM)" fillcolor="#E1BEE7"]
+        session_mgr      [label="create_session_token()\nvalidate_session_token()\n(itsdangerous TimestampSigner)" fillcolor="#E1BEE7"]
+        require_auth     [label="require_auth()\n(cookie validation\nFastAPI dependency)" fillcolor="#E1BEE7"]
+        validate_ws_fn   [label="validate_ws()\n(WebSocket forward_auth\nvariant)" fillcolor="#E1BEE7"]
+
+        authenticate_pam -> session_mgr [label="success →\ncreate token"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DOWNSTREAM APPS — orange, dashed border  (Caddy proxies + auth guard)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_downstream {
+        label="Downstream Apps  (Caddy-managed)"
+        style="dashed,filled"
+        fillcolor="#FFF3E0"
+        color="#FB8C00"
+        penwidth=2
+
+        filebrowser [label="filebrowser\n(port 8447 / 58080)"      fillcolor="#FFE0B2"]
+        your_app    [label="Your App\n(port 8440+)"                 fillcolor="#FFE0B2" style="rounded,filled,dashed"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONFIG — yellow  (Settings dataclass)
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_config {
+        label="Configuration"
+        style="filled"
+        fillcolor="#FFFDE7"
+        color="#F9A825"
+        penwidth=2
+
+        settings [shape=note fillcolor="#FFF9C4"
+                  label="Settings  (dataclass)\nport: 8420\ncaddy_conf_d\nmanifest_dir\nsecret_key\nsession_timeout\ncookie_domain, log_level"]
+    }
+
+    // ── Main request path: User → Infra → FastAPI ───────────────────────
+    user      -> tailscale   [label="HTTPS" penwidth=1.5]
+    tailscale -> caddy       [label="mesh" style=dashed]
+    user      -> caddy       [label="HTTPS (direct)" style=dashed color="#9E9E9E"]
+    caddy     -> uvicorn     [label="proxy :8420" penwidth=1.5]
+    uvicorn   -> fastapi_app [label="ASGI" penwidth=1.5]
+    systemd   -> uvicorn     [label="manages" style=dashed color="#9E9E9E"]
+
+    // ── FastAPI internal wiring ─────────────────────────────────────────
+    fastapi_app -> auth_routes     [label="router include"]
+    fastapi_app -> services_route  [label="router include"]
+    fastapi_app -> index_html      [label="StaticFiles\nmount"]
+    fastapi_app -> static_assets   [label="StaticFiles\nmount"]
+
+    // ── Forward auth guard + downstream reverse proxy ───────────────────
+    caddy -> auth_routes  [label="forward_auth\n/api/auth/validate" style=bold color="#8E24AA" fontcolor="#8E24AA" penwidth=2]
+    caddy -> filebrowser  [label="reverse_proxy"]
+    caddy -> your_app     [label="reverse_proxy" style=dashed]
+
+    // ── Discovery pipeline feeds the services endpoint ──────────────────
+    caddy_parser     -> services_route [label="virtual hosts"]
+    manifest_overlay -> services_route [label="app metadata"]
+    tcp_prober       -> services_route [label="unregistered\nports"]
+    proc_scanner     -> tcp_prober     [label="port→process\ncorrelation"]
+
+    // ── Auth core wiring ────────────────────────────────────────────────
+    auth_routes -> authenticate_pam [label="PAM call\n(login)"]
+    auth_routes -> session_mgr      [label="token ops"]
+    auth_routes -> require_auth     [label="dep inject\n(HTTP validate)"]
+    auth_routes -> validate_ws_fn   [label="WS handler\n(WS validate)"]
+
+    // ── Config drives app startup ───────────────────────────────────────
+    settings -> fastapi_app [label="configure" style=dashed color="#F9A825" fontcolor="#F9A825" constraint=false]
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LEGEND
+    // ═══════════════════════════════════════════════════════════════════════
+    subgraph cluster_legend {
+        label="Legend"
+        style="filled"
+        fillcolor="#F5F5F5"
+        color="#9E9E9E"
+        fontsize=11
+        node [fontsize=10 width=2.0]
+
+        L_infra  [label="Infrastructure"    fillcolor="#C5CAE9"]
+        L_fe     [label="Frontend"          fillcolor="#C8E6C9"]
+        L_be     [label="Backend"           fillcolor="#BBDEFB"]
+        L_disc   [label="Discovery"         fillcolor="#B2DFDB"]
+        L_auth   [label="Auth Core"         fillcolor="#E1BEE7"]
+        L_down   [label="Downstream App"    fillcolor="#FFE0B2"]
+        L_cfg    [label="Config / Metadata" fillcolor="#FFF9C4"]
+        L_ext    [label="External / User"   shape=parallelogram fillcolor="#ECEFF1"]
+        L_sysmgr [label="System Manager"    shape=component     fillcolor="#9FA8DA"]
+        L_annot  [label="Annotation"        shape=note          fillcolor="#FFF9C4"]
+
+        L_infra -> L_fe -> L_be -> L_disc -> L_auth -> L_down -> L_cfg -> L_ext -> L_sysmgr -> L_annot [style=invis]
+    }
+}

@@ -101,6 +101,83 @@ forward_auth localhost:8420 {
 
 For the full integration guide (ports, manifests, sign-out, templates), see the `web-app-setup` skill.
 
+### Companion app: filebrowser
+
+[filebrowser](https://github.com/robotdad/filebrowser) is designed to work with frontdoor out of the box. When deployed together, filebrowser inherits frontdoor's SSO and its install script automatically configures the `forward_auth` integration.
+
+## Protocol support
+
+frontdoor validates authentication for both HTTP and WebSocket protocols. Understanding the protocol handling is important when integrating apps that use persistent connections.
+
+### HTTP (works out of the box)
+
+Standard HTTP requests flow through Caddy's `forward_auth` transparently:
+
+```
+Request → Caddy → forward_auth → frontdoor /api/auth/validate (HTTP)
+  → validates frontdoor_session cookie
+  → 200 + X-Authenticated-User header (success)
+  → 401 (failure, Caddy redirects to /login)
+```
+
+### WebSocket (requires explicit handler)
+
+Caddy's `forward_auth` sends WebSocket Upgrade requests to the validate endpoint. Without an explicit WebSocket handler, FastAPI's `StaticFiles` catch-all crashes on the non-HTTP ASGI scope. frontdoor handles this with a dedicated `@router.websocket("/api/auth/validate")` endpoint:
+
+```
+WS Upgrade → Caddy → forward_auth → frontdoor /api/auth/validate (WebSocket)
+  → validate_ws() reads cookie from handshake headers (before accept)
+  → websocket.accept(headers=[x-authenticated-user: <name>]) + close()  (success)
+  → websocket.close(code=4001)  (failure, 401-equivalent)
+```
+
+Key details:
+- The session cookie is available on WebSocket handshake headers **before** accept -- no need to accept the connection first
+- Close code `4001` is the 401-equivalent for WebSocket; Caddy interprets close as auth failure
+- The `websockets` library (v16+) is pulled in transitively via `uvicorn[standard]`
+
+### Enabling additional protocols
+
+If a new protocol doesn't work through `forward_auth`, the pattern is:
+
+1. **Check if `forward_auth` passes the protocol correctly.** If yes, no changes needed.
+2. **If the protocol needs a persistent connection** (like WebSocket), the downstream app may need to:
+   - Add a Caddy `handle` block to route protocol-specific paths before `forward_auth`
+   - Implement a cookie bridge to issue an app-level session cookie for protocol auth
+   - See [filebrowser's terminal WebSocket bypass](https://github.com/robotdad/filebrowser) for the working pattern
+3. **If the protocol is HTTP-based** (like SSE), it should work through `forward_auth` without changes.
+
+The general Caddy bypass pattern:
+```caddy
+# Route protocol-specific paths BEFORE forward_auth
+handle /api/<protocol-path>* {
+    reverse_proxy localhost:<app-port>
+}
+
+# Everything else goes through auth
+handle {
+    forward_auth localhost:8420 {
+        uri /api/auth/validate
+        copy_headers X-Authenticated-User
+    }
+    reverse_proxy localhost:<app-port>
+}
+```
+
+See `docs/protocol-support.dot` for the full decision flowchart.
+
+## Architecture diagrams
+
+The `docs/` directory contains DOT/Graphviz architecture diagrams. These are the source of truth for system design -- no rendered images are committed. View them with `dot -Tsvg <file>.dot` or a live Graphviz preview extension.
+
+| Diagram | What it covers |
+|---------|---------------|
+| `docs/architecture.dot` | System overview: infrastructure, frontend, backend, discovery pipeline, auth core, downstream apps |
+| `docs/auth-flow.dot` | HTTP and WebSocket auth flows side by side, login flow, why WebSocket needs special handling |
+| `docs/protocol-support.dot` | Protocol traversal patterns, decision flowchart for enabling new protocols, Caddy config patterns |
+
+These diagrams are particularly useful for AI agents working on this codebase -- they encode the system topology in a machine-parseable format that can be analyzed with graph tools.
+
 ## Status commands
 
 Check the frontdoor service:
