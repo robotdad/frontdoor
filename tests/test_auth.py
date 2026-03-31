@@ -66,19 +66,46 @@ class TestValidateSessionToken:
 
 
 class TestAuthenticatePam:
+    """Tests for authenticate_pam, including the single-user ownership guard.
+
+    The guard checks that the submitted username matches the OS user running the
+    process before even calling PAM — pattern sourced from muxplex auth.py.
+    We mock pwd.getpwuid so tests are independent of whoever runs the suite.
+    """
+
+    @staticmethod
+    def _patch_owner(name: str = "testowner"):
+        """Make frontdoor.auth.pwd.getpwuid look like the process owner is `name`."""
+        mock_pw = MagicMock()
+        mock_pw.pw_name = name
+        return patch("frontdoor.auth.pwd.getpwuid", return_value=mock_pw)
+
     def test_mock_success(self):
         from frontdoor.auth import authenticate_pam
 
-        with patch("frontdoor.auth.pam.pam") as mock_pam_class:
-            mock_pam_class.return_value.authenticate.return_value = True
-            assert authenticate_pam("user", "pass") is True
+        with self._patch_owner("testowner"):
+            with patch("frontdoor.auth.pam.pam") as mock_pam_class:
+                mock_pam_class.return_value.authenticate.return_value = True
+                assert authenticate_pam("testowner", "pass") is True
 
     def test_mock_failure(self):
         from frontdoor.auth import authenticate_pam
 
-        with patch("frontdoor.auth.pam.pam") as mock_pam_class:
-            mock_pam_class.return_value.authenticate.return_value = False
-            assert authenticate_pam("user", "wrong") is False
+        with self._patch_owner("testowner"):
+            with patch("frontdoor.auth.pam.pam") as mock_pam_class:
+                mock_pam_class.return_value.authenticate.return_value = False
+                assert authenticate_pam("testowner", "wrong") is False
+
+    def test_cross_user_rejected_without_pam_call(self):
+        """A username that differs from the process owner is rejected before PAM is called."""
+        from frontdoor.auth import authenticate_pam
+
+        with self._patch_owner("alice"):
+            with patch("frontdoor.auth.pam.pam") as mock_pam_class:
+                result = authenticate_pam("mallory", "anypass")
+
+        assert result is False
+        mock_pam_class.assert_not_called()
 
 
 class TestRequireAuth:
@@ -173,6 +200,49 @@ class TestValidateRoute:
         assert response.headers.get("x-authenticated-user") == "testuser"
 
 
+class TestValidateWsRoute:
+    """Tests for the WebSocket forward_auth endpoint.
+
+    Caddy invokes this for WebSocket upgrade requests instead of the HTTP GET
+    variant.  Auth is checked before websocket.accept() so the handshake is
+    refused at the protocol level on failure — pattern from muxplex main.py.
+    """
+
+    def test_no_cookie_closes_4001(self, auth_client):
+        """WS /api/auth/validate with no session cookie must be rejected (4001)."""
+        from starlette.websockets import WebSocketDisconnect
+
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with auth_client.websocket_connect("/api/auth/validate"):
+                pass
+        assert exc_info.value.code == 4001
+
+    def test_invalid_cookie_closes_4001(self, auth_client):
+        """WS /api/auth/validate with a garbage cookie must be rejected (4001)."""
+        from starlette.websockets import WebSocketDisconnect
+
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with auth_client.websocket_connect(
+                "/api/auth/validate",
+                cookies={"frontdoor_session": "garbage-token"},
+            ):
+                pass
+        assert exc_info.value.code == 4001
+
+    def test_valid_cookie_accepts_connection_with_header(
+        self, auth_client, valid_token, patched_settings
+    ):
+        """WS /api/auth/validate with a valid cookie must accept and send X-Authenticated-User."""
+        with _patch("frontdoor.auth.settings", patched_settings):
+            with _patch("frontdoor.routes.auth.settings", patched_settings):
+                auth_client.cookies.set("frontdoor_session", valid_token)
+                try:
+                    with auth_client.websocket_connect("/api/auth/validate"):
+                        pass  # server accepts then handler returns → clean close
+                finally:
+                    auth_client.cookies.clear()
+
+
 class TestLogoutRoute:
     def test_logout_redirects_303_to_login(self, auth_client):
         response = auth_client.post("/api/auth/logout")
@@ -249,14 +319,14 @@ class TestLoginRoute:
         set_cookie = response.headers.get("set-cookie", "").lower()
         assert "httponly" in set_cookie
 
-    def test_cookie_samesite_lax(self, auth_client):
+    def test_cookie_samesite_strict(self, auth_client):
         with patch("frontdoor.routes.auth.authenticate_pam", return_value=True):
             response = auth_client.post(
                 "/api/auth/login",
                 data={"username": "testuser", "password": "goodpass"},
             )
         set_cookie = response.headers.get("set-cookie", "").lower()
-        assert "samesite=lax" in set_cookie
+        assert "samesite=strict" in set_cookie
 
     # ------------------------------------------------------------------
     # Security regression tests: open redirect and URL encoding

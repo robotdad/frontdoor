@@ -1,4 +1,6 @@
 import logging
+import os
+import pwd
 
 import pam
 from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
@@ -10,6 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 def authenticate_pam(username: str, password: str) -> bool:
+    # Single-user guard: frontdoor runs as one OS user and only that user may
+    # authenticate through it.  Checking at the socket/UID level (not just
+    # comparing strings) means a multi-user machine can't cross-authenticate
+    # even if PAM would otherwise accept the other user's credentials.
+    # Pattern sourced from muxplex auth.py.
+    running_user = pwd.getpwuid(os.getuid()).pw_name
+    if username != running_user:
+        logger.warning(
+            "PAM auth rejected: submitted username=%s does not match process owner=%s",
+            username,
+            running_user,
+        )
+        return False
     p = pam.pam()
     success = p.authenticate(username, password)
     if success:

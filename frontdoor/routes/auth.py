@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from frontdoor.auth import (
@@ -48,6 +48,31 @@ async def validate(username: str = Depends(require_auth)) -> Response:
     )
 
 
+@router.websocket("/api/auth/validate")
+async def validate_ws(websocket: WebSocket) -> None:
+    """Caddy forward_auth WebSocket endpoint: validates session cookie before accept.
+
+    Mirrors GET /api/auth/validate but for WebSocket upgrade requests. Caddy's
+    forward_auth invokes this when a downstream client opens a WebSocket connection.
+
+    Auth is checked before websocket.accept() so the handshake is refused at the
+    protocol level on failure — the connection never completes. Pattern sourced
+    from muxplex main.py (websocket auth before accept, close code 4001).
+    """
+    token = websocket.cookies.get("frontdoor_session")
+    if not token:
+        logger.debug("WS auth: no session cookie, closing 4001")
+        await websocket.close(code=4001)
+        return
+    username = validate_session_token(token, settings.secret_key, settings.session_timeout)
+    if not username:
+        logger.warning("WS auth: invalid or expired session token, closing 4001")
+        await websocket.close(code=4001)
+        return
+    logger.debug("WS auth accepted: user=%s", username)
+    await websocket.accept(headers=[(b"x-authenticated-user", username.encode())])
+
+
 @router.post("/api/auth/login")
 async def login(
     request: Request,
@@ -73,7 +98,7 @@ async def login(
         value=token,
         httponly=True,
         secure=settings.secure_cookies,
-        samesite="lax",
+        samesite="strict",
         max_age=settings.session_timeout,
         domain=settings.cookie_domain or None,
     )
