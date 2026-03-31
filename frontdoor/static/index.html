@@ -370,6 +370,13 @@
       line-height: 1;
     }
 
+    .card-icon img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      border-radius: 4px;
+    }
+
     /* Muted icon for "Also Running" */
     .card-icon.muted {
       color: var(--label-tertiary);
@@ -553,7 +560,9 @@
           rel="noopener"
         >
           <div class="card-icon">
-            <i class=${iconClass(service.icon)}></i>
+            ${service.icon && service.icon.startsWith('/')
+              ? html`<img src=${service.icon} alt=${service.name} />`
+              : html`<i class=${iconClass(service.icon)}></i>`}
           </div>
           <div class="card-body">
             <div class="card-name">${service.name}</div>
