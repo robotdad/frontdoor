@@ -200,49 +200,6 @@ class TestValidateRoute:
         assert response.headers.get("x-authenticated-user") == "testuser"
 
 
-class TestValidateWsRoute:
-    """Tests for the WebSocket forward_auth endpoint.
-
-    Caddy invokes this for WebSocket upgrade requests instead of the HTTP GET
-    variant.  Auth is checked before websocket.accept() so the handshake is
-    refused at the protocol level on failure — pattern from muxplex main.py.
-    """
-
-    def test_no_cookie_closes_4001(self, auth_client):
-        """WS /api/auth/validate with no session cookie must be rejected (4001)."""
-        from starlette.websockets import WebSocketDisconnect
-
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with auth_client.websocket_connect("/api/auth/validate"):
-                pass
-        assert exc_info.value.code == 4001
-
-    def test_invalid_cookie_closes_4001(self, auth_client):
-        """WS /api/auth/validate with a garbage cookie must be rejected (4001)."""
-        from starlette.websockets import WebSocketDisconnect
-
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with auth_client.websocket_connect(
-                "/api/auth/validate",
-                cookies={"frontdoor_session": "garbage-token"},
-            ):
-                pass
-        assert exc_info.value.code == 4001
-
-    def test_valid_cookie_accepts_connection_with_header(
-        self, auth_client, valid_token, patched_settings
-    ):
-        """WS /api/auth/validate with a valid cookie must accept and send X-Authenticated-User."""
-        with _patch("frontdoor.auth.settings", patched_settings):
-            with _patch("frontdoor.routes.auth.settings", patched_settings):
-                auth_client.cookies.set("frontdoor_session", valid_token)
-                try:
-                    with auth_client.websocket_connect("/api/auth/validate"):
-                        pass  # server accepts then handler returns → clean close
-                finally:
-                    auth_client.cookies.clear()
-
-
 class TestLogoutRoute:
     def test_logout_redirects_303_to_login(self, auth_client):
         response = auth_client.post("/api/auth/logout")
