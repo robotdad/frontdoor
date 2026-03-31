@@ -39,11 +39,11 @@ Apps behind `forward_auth` do not need their own login flow — every request th
 
 ### Protocol Support: HTTP and WebSocket
 
-frontdoor's `/api/auth/validate` endpoint handles both HTTP and WebSocket protocols. This matters because Caddy's `forward_auth` sends the full incoming request — including WebSocket Upgrade requests — to the validate endpoint.
+Caddy's `forward_auth` always makes a plain **HTTP GET** to `/api/auth/validate` regardless of whether the original client request is HTTP or a WebSocket upgrade — the validate endpoint is HTTP-only.
 
 **HTTP** works transparently through `forward_auth`.
 
-**WebSocket** requires an explicit `@router.websocket("/api/auth/validate")` handler in frontdoor. Without it, FastAPI's `StaticFiles` catch-all receives the WebSocket ASGI scope and crashes. The handler reads the session cookie from handshake headers before accept, then either accepts (with `X-Authenticated-User` header) or closes with code 4001 (401-equivalent).
+**WebSocket** upgrade requests need the bypass pattern below. Caddy 2.6 validates the session cookie successfully via the HTTP validate endpoint, but cannot then proxy the WebSocket connection to the backend. Route WebSocket paths before `forward_auth` to work around this.
 
 ### WebSocket Bypass Pattern for Downstream Apps
 

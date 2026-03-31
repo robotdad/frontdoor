@@ -1,0 +1,25 @@
+MUXPLEX_FQDN:MUXPLEX_PORT {
+    tls CERT_PATH KEY_PATH
+
+    # Terminal WebSocket: Caddy 2.6 cannot proxy WebSocket connections through
+    # forward_auth — muxplex authenticates terminal requests via its localhost
+    # bypass instead. header_up strips X-Forwarded-For so uvicorn sets
+    # request.client.host to 127.0.0.1, which triggers the bypass.
+    handle /terminal* {
+        reverse_proxy localhost:8088 {
+            header_up -X-Forwarded-For
+        }
+    }
+
+    # All other requests: authenticate via frontdoor.
+    # header_up strips X-Forwarded-For for the same reason as above.
+    handle {
+        forward_auth localhost:FRONTDOOR_PORT {
+            uri /api/auth/validate
+            copy_headers X-Authenticated-User
+        }
+        reverse_proxy localhost:8088 {
+            header_up -X-Forwarded-For
+        }
+    }
+}

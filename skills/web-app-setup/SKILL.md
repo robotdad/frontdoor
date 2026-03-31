@@ -400,8 +400,6 @@ When bypassing `forward_auth`, the app's WebSocket endpoints **cannot** rely on 
 2. It issues an app-level session cookie to the browser
 3. The WebSocket endpoint validates that cookie independently via `resolve_authenticated_user()` which checks the header first, then the cookie
 
-frontdoor itself has an explicit `@router.websocket("/api/auth/validate")` handler (`validate_ws`) that handles WebSocket Upgrade requests from `forward_auth`. This handler reads the `frontdoor_session` cookie from the WebSocket handshake headers before accepting, then either accepts (success) or closes with code 4001 (401-equivalent). Without this handler, FastAPI's `StaticFiles` catch-all would crash on the non-HTTP ASGI scope.
-
 See filebrowser's terminal implementation for the complete reference pattern: Caddy bypass, cookie bridge, and dual-mode auth.
 
 ---
@@ -521,6 +519,20 @@ Environment=AMPLIFIERD_TRUST_PROXY_AUTH=true
 ```
 
 Add this to the systemd unit (or launchd plist `EnvironmentVariables` dict) alongside the other environment variables in section 2d.
+
+---
+
+## Known-App Configurations
+
+For third-party apps that have been tested and integrated with frontdoor, pre-built
+configs are in `frontdoor:known-apps/<appname>/`. Each directory contains a ready-to-use
+Caddy config, systemd service file, frontdoor manifest, and a README explaining any
+integration quirks specific to that app.
+
+Check `known-apps/` before setting up a third-party app — if a config exists there, use
+it instead of building from the generic templates above.
+
+Currently documented: **muxplex** (tmux session dashboard).
 
 ---
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=Muxplex tmux session dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=SERVICE_USER
+Environment=HOME=/home/SERVICE_USER
+ExecStart=/home/SERVICE_USER/.local/bin/muxplex serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
