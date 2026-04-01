@@ -1,0 +1,10 @@
+FQDN:EXTERNAL_PORT {
+    tls CERT_PATH KEY_PATH
+
+    forward_auth localhost:FRONTDOOR_PORT {
+        uri /api/auth/validate
+        copy_headers X-Authenticated-User
+    }
+
+    reverse_proxy localhost:INTERNAL_PORT
+}

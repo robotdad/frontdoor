@@ -143,10 +143,26 @@ chmod 600 "$SECRET_PATH"
 SECRET=$(cat "$SECRET_PATH")
 ```
 
-### 2b. Allocate port
+### 2b. Allocate ports
+
+Two separate ports are required:
+
+- **`$INTERNAL_PORT`** — what the app process binds to (`127.0.0.1:INTERNAL_PORT`)
+- **`$EXTERNAL_PORT`** — what Caddy's vhost listens on (all interfaces, `:EXTERNAL_PORT`)
+
+They **must** be different. Caddy binds `0.0.0.0:EXTERNAL_PORT`; if it matches the app's
+port, the bind fails with `address already in use`.
+
+Check all three sources before picking either port:
 
 ```bash
-PORT=$(python3 -c "
+cat /etc/app-ports.conf                               # registry: claimed ports
+ss -tlnp | awk '/127\.0\.0\.1/{print $4}' | sort      # live sockets: app internal ports
+grep -r 'ts.net:' /etc/caddy/conf.d/                  # Caddy snippets: claimed external ports
+```
+
+```bash
+INTERNAL_PORT=$(python3 -c "
 import socket, configparser
 
 cfg = configparser.ConfigParser()
@@ -162,13 +178,16 @@ for p in range(8444, 8999):
         pass
 ")
 
+# Pick EXTERNAL_PORT: a different free port — check conf.d to avoid Caddy collisions
+# EXTERNAL_PORT=<pick manually from the grep output above>
+
 cat >> /etc/app-ports.conf <<EOF
 
 [<APPNAME>]
-internal=$PORT
-external=$PORT
+internal=$INTERNAL_PORT
+external=$EXTERNAL_PORT
 EOF
-echo "Allocated port: $PORT"
+echo "Internal: $INTERNAL_PORT  External: $EXTERNAL_PORT"
 ```
 
 ### 2c. Write Caddy snippet
@@ -183,16 +202,18 @@ FQDN=$(tailscale status --json 2>/dev/null | \
 # If skipped (Option C / HTTP only), leave them unset and use the HTTP snippet below.
 
 # HTTPS (certs present — $CERT_PATH and $KEY_PATH set)
+# EXTERNAL_PORT: Caddy listens here (all interfaces)
+# INTERNAL_PORT: app listens here (127.0.0.1 only) — must differ from EXTERNAL_PORT
 cat > /etc/caddy/conf.d/<APPNAME>.caddy <<EOF
-$FQDN:$PORT {
+$FQDN:$EXTERNAL_PORT {
     tls $CERT_PATH $KEY_PATH
-    reverse_proxy localhost:$PORT
+    reverse_proxy localhost:$INTERNAL_PORT
 }
 EOF
 
 # HTTP fallback — use this block instead when no certs are available
-# $FQDN:$PORT {
-#     reverse_proxy localhost:$PORT
+# $FQDN:$EXTERNAL_PORT {
+#     reverse_proxy localhost:$INTERNAL_PORT
 # }
 
 systemctl reload caddy   # Linux
@@ -350,7 +371,9 @@ The `forward_auth` block **must** appear before `reverse_proxy` and **must** inc
 
 ```caddy
 # /etc/caddy/conf.d/<APPNAME>.caddy
-<FQDN>:<PORT> {
+# <EXTERNAL_PORT>: Caddy vhost port (all interfaces) — check conf.d for taken ports
+# <INTERNAL_PORT>: app's listening port (127.0.0.1) — must differ from EXTERNAL_PORT
+<FQDN>:<EXTERNAL_PORT> {
     tls <CERT_PATH> <KEY_PATH>  # Paths from Phase 1: /etc/ssl/tailscale/ or /etc/ssl/self-signed/
 
     forward_auth localhost:8420 {
@@ -358,7 +381,7 @@ The `forward_auth` block **must** appear before `reverse_proxy` and **must** inc
         copy_headers X-Authenticated-User
     }
 
-    reverse_proxy localhost:<PORT>
+    reverse_proxy localhost:<INTERNAL_PORT>
 }
 ```
 
@@ -375,7 +398,7 @@ If the app uses WebSocket endpoints (e.g. interactive terminal, real-time update
 
 ```caddy
 # /etc/caddy/conf.d/<APPNAME>.caddy
-<FQDN>:<PORT> {
+<FQDN>:<EXTERNAL_PORT> {
     tls <CERT_PATH> <KEY_PATH>
 
     # WebSocket paths bypass forward_auth (Caddy 2.6 limitation)

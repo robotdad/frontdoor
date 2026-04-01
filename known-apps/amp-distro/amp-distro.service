@@ -1,0 +1,14 @@
+[Unit]
+Description=Amplifier Experience Server
+After=network.target tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+User=SERVICE_USER
+ExecStart=/home/SERVICE_USER/.local/share/uv/tools/amp-distro/bin/amp-distro --host 127.0.0.1 --port INTERNAL_PORT --tls off
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
