@@ -234,6 +234,12 @@ Cookie name in app code **must** be `<APPNAME>_session`.
 Description=<App Display Name>
 After=network.target tailscaled.service
 Wants=tailscaled.service
+# NOTE — KillMode: systemd's default (control-group) kills the entire process group
+# on stop/restart, including any child processes the app has spawned. For most apps
+# this is correct. If the app manages long-lived children you want to survive restarts
+# (e.g. tmux sessions, background workers, spawned servers), add:
+#   KillMode=process
+# This tells systemd to only kill the main process, leaving children alive.
 
 [Service]
 Type=simple

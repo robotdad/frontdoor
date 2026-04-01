@@ -9,6 +9,7 @@ Environment=HOME=/home/SERVICE_USER
 ExecStart=/home/SERVICE_USER/.local/bin/muxplex serve
 Restart=on-failure
 RestartSec=5
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target
