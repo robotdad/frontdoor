@@ -1,0 +1,32 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_frontdoor_light)">
+
+<!-- Light background fill -->
+<path d="M61.2547 2.7453H2.7453V61.2547H61.2547V2.7453Z" fill="#F5F5F7"/>
+
+<!-- Window chrome: outer border + header/body divider (evenodd rule) -->
+<path fill-rule="evenodd" clip-rule="evenodd"
+  d="M61.941 0C63.0781 0 64 0.921837 64 2.05898V61.941C64 63.0781 63.0781 64 61.941 64H2.05898C0.921839 64 0 63.0781 0 61.941V2.05898C0 0.921837 0.921837 0 2.05898 0H61.941ZM2.74531 18.1877V61.2547H61.2547V18.1877H2.74531ZM2.74531 15.7855H61.2547V2.74531H2.74531V15.7855Z"
+  fill="#1D1D1F"/>
+
+<!-- Header dot 1: Apple green (services running) -->
+<circle cx="9.2654" cy="9.2654" r="2.917" fill="#34C759"/>
+<!-- Header dot 2: Neutral gray (visible on light background) -->
+<circle cx="18.5308" cy="9.2654" r="2.917" fill="#8E8E93"/>
+<!-- Header dot 3: Apple blue (auth / primary accent) -->
+<circle cx="27.7962" cy="9.2654" r="2.917" fill="#007AFF"/>
+
+<!-- Door: arch-top rectangle, centered in body area -->
+<path d="M21 58 L21 34 A11 11 0 0 1 43 34 L43 58 Z"
+  fill="#FFFFFF" stroke="#1D1D1F" stroke-width="1.5" stroke-linejoin="round"/>
+
+<!-- Door handle / knob -->
+<circle cx="39" cy="44" r="2" fill="#007AFF"/>
+
+</g>
+<defs>
+  <clipPath id="clip0_frontdoor_light">
+    <rect width="64" height="64" fill="white"/>
+  </clipPath>
+</defs>
+</svg>

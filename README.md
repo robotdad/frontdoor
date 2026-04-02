@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/icons/frontdoor-icon-128.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/branding/icons/frontdoor-icon-128.png">
+    <img alt="frontdoor" src="assets/branding/icons/frontdoor-icon-128.png" width="80">
+  </picture>
+</p>
+
 # frontdoor
 
 **frontdoor** is a developer-host dashboard and shared authentication gateway. It runs on your Linux machine and provides a single authenticated entry point that shows all your locally-running web apps in one place.

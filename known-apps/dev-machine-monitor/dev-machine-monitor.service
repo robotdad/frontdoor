@@ -1,0 +1,12 @@
+[Unit]
+Description=Dev Machine Monitor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/robotdad/.local/bin/dev-machine-monitor serve --port 8111 --tls off --no-auth
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

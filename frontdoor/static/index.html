@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>frontdoor</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -129,6 +133,18 @@
       font-size: 15px;
       font-weight: 500;
       color: var(--label-secondary);
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+    }
+    .header-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      flex-shrink: 0;
     }
 
     /* Refresh button — Category C Inline Interactive */
@@ -632,8 +648,11 @@
 
       return html`
         <header class="header">
-          <span class="header-hostname">
-            <span class="mono">${hostname}</span>
+          <span class="header-brand">
+            <img src="/frontdoor-icon.svg" width="28" height="28" alt="" class="header-logo" />
+            <span class="header-hostname">
+              <span class="mono">${hostname}</span>
+            </span>
           </span>
           <div class="header-actions">
             <button
