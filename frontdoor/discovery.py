@@ -163,6 +163,28 @@ def overlay_manifests(services: list[dict], manifest_dir: Path) -> list[dict]:
     return enriched
 
 
+_RE_SS_PORT = re.compile(r":(\d+)\s")
+_RE_SS_PROC = re.compile(r'users:\(\("([^"]+)",pid=(\d+)')
+
+
+def _run_ss_tlnp() -> str | None:
+    """Run ``ss -tlnp`` and return stdout, or ``None`` on any failure."""
+    try:
+        result = subprocess.run(
+            ["ss", "-tlnp"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as e:
+        logger.warning("ss command error: %s", e)
+        return None
+    if result.returncode != 0:
+        logger.warning("ss command failed (returncode=%d)", result.returncode)
+        return None
+    return result.stdout
+
+
 def scan_processes(skip_ports: set[int]) -> list[dict]:
     """Detect unregistered services by scanning listening TCP ports via ``ss -tlnp``.
 
@@ -177,31 +199,20 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
         discovered unregistered service.  Returns an empty list on any
         subprocess failure.
     """
-    try:
-        result = subprocess.run(
-            ["ss", "-tlnp"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except Exception as e:
-        logger.warning("ss command error: %s", e)
-        return []
-
-    if result.returncode != 0:
-        logger.warning("ss command failed (returncode=%d)", result.returncode)
+    stdout = _run_ss_tlnp()
+    if stdout is None:
         return []
 
     exclude: set[int] = RESERVED_PORTS | skip_ports | {settings.port}
 
     services: list[dict] = []
     listen_count = 0
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         if "LISTEN" not in line:
             continue
         listen_count += 1
 
-        port_match = re.search(r":(\d+)\s", line)
+        port_match = _RE_SS_PORT.search(line)
         if not port_match:
             continue
         port = int(port_match.group(1))
@@ -209,7 +220,7 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
         if port in exclude:
             continue
 
-        proc_match = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+        proc_match = _RE_SS_PROC.search(line)
         if not proc_match:
             continue
 
@@ -230,32 +241,18 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
 def get_port_pids() -> dict[int, int]:
     """Return {port: pid} for all listening TCP ports via ``ss -tlnp``.
 
-    Runs ``ss -tlnp`` once and parses the output.  Called once per request
-    and shared across all service lookups.
-
     Returns an empty dict on any subprocess failure.
     """
-    try:
-        result = subprocess.run(
-            ["ss", "-tlnp"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except Exception as e:
-        logger.warning("ss command error in get_port_pids: %s", e)
-        return {}
-
-    if result.returncode != 0:
-        logger.warning("ss command failed (returncode=%d)", result.returncode)
+    stdout = _run_ss_tlnp()
+    if stdout is None:
         return {}
 
     port_pids: dict[int, int] = {}
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         if "LISTEN" not in line:
             continue
-        port_match = re.search(r":(\d+)\s", line)
-        proc_match = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+        port_match = _RE_SS_PORT.search(line)
+        proc_match = _RE_SS_PROC.search(line)
         if port_match and proc_match:
             port_pids[int(port_match.group(1))] = int(proc_match.group(2))
 
