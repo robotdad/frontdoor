@@ -337,6 +337,67 @@ class TestManifestEndpoints:
             config_module.settings.manifest_dir = orig_manifest_dir
 
 
+class TestKnownApps:
+    def test_list_known_apps(self, admin_client):
+        """GET /api/admin/known-apps returns available known-app configs."""
+        client, _ = admin_client
+
+        with patch(
+            "frontdoor.routes.admin.list_known_apps",
+            return_value=[
+                {
+                    "name": "muxplex",
+                    "description": "Tmux dashboard",
+                    "files": ["muxplex.caddy"],
+                    "readme_url": None,
+                }
+            ],
+        ):
+            resp = client.get("/api/admin/known-apps")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "muxplex"
+
+    def test_install_known_app(self, admin_client):
+        """POST /api/admin/known-apps/{appname}/install installs the app."""
+        client, _ = admin_client
+
+        with patch(
+            "frontdoor.routes.admin.install_known_app",
+            return_value={
+                "slug": "muxplex",
+                "caddy_config": "/etc/caddy/conf.d/muxplex.caddy",
+                "service_unit": "/etc/systemd/system/muxplex.service",
+                "manifest": "/opt/frontdoor/manifests/muxplex.json",
+                "service_status": "start_requested",
+            },
+        ):
+            resp = client.post(
+                "/api/admin/known-apps/muxplex/install",
+                json={"service_user": "robotdad"},
+            )
+
+        assert resp.status_code == 201
+        assert resp.json()["slug"] == "muxplex"
+
+    def test_install_unknown_app_returns_404(self, admin_client):
+        """POST /api/admin/known-apps/{bad}/install returns 404."""
+        client, _ = admin_client
+
+        with patch(
+            "frontdoor.routes.admin.install_known_app",
+            side_effect=FileNotFoundError("nope"),
+        ):
+            resp = client.post(
+                "/api/admin/known-apps/nonexistent/install",
+                json={"service_user": "robotdad"},
+            )
+
+        assert resp.status_code == 404
+
+
 class TestAppRegistration:
     def test_register_app(self, admin_client, tmp_path):
         """POST /api/admin/apps registers a new app."""

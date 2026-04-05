@@ -10,7 +10,12 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from frontdoor.app_registration import register_app, unregister_app
+from frontdoor.app_registration import (
+    install_known_app,
+    list_known_apps,
+    register_app,
+    unregister_app,
+)
 from frontdoor.auth import require_admin_auth
 from frontdoor.config import settings
 from frontdoor.discovery import (
@@ -379,6 +384,61 @@ async def delete_manifest(
     manifest_path.unlink()
     logger.info("Manifest deleted: %s by %s", slug, identity)
     return {"status": "deleted", "slug": slug}
+
+
+# ---------------------------------------------------------------------------
+# Known-app models
+# ---------------------------------------------------------------------------
+
+
+class KnownAppInstallRequest(BaseModel):
+    service_user: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Known apps — GET/POST /api/admin/known-apps
+# ---------------------------------------------------------------------------
+
+
+@router.get("/known-apps")
+async def get_known_apps(
+    identity: str = Depends(_admin_auth),
+) -> list[dict]:
+    """List available known-app configurations."""
+    return list_known_apps()
+
+
+@router.post("/known-apps/{appname}/install", status_code=201)
+async def install_known_app_endpoint(
+    appname: str,
+    body: KnownAppInstallRequest,
+    identity: str = Depends(_admin_auth),
+) -> dict:
+    """Install a known-app configuration."""
+    service_user = body.service_user or settings.service_user
+    if not service_user:
+        import os
+
+        try:
+            service_user = os.getlogin()
+        except OSError:
+            service_user = "root"
+
+    try:
+        result = install_known_app(appname, service_user=service_user)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": f"Known app not found: {appname}", "code": "NOT_FOUND"},
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": str(e), "code": "INSTALL_FAILED"},
+        )
+
+    logger.info("Known app installed: %s by %s", appname, identity)
+    return result
 
 
 # ---------------------------------------------------------------------------
