@@ -35,9 +35,7 @@ def _write_tokens(tokens_file: Path, data: dict) -> None:
     tokens_file.write_text(json.dumps(data, indent=2))
 
 
-def create_token(
-    name: str, *, tokens_file: Path | None = None
-) -> tuple[str, str]:
+def create_token(name: str, *, tokens_file: Path | None = None) -> tuple[str, str]:
     """Create a new API token.
 
     Returns ``(token_id, raw_token)``.  The raw token is shown once —
@@ -65,9 +63,7 @@ def create_token(
     return token_id, raw_token
 
 
-def validate_token(
-    raw_token: str, *, tokens_file: Path | None = None
-) -> str | None:
+def validate_token(raw_token: str, *, tokens_file: Path | None = None) -> str | None:
     """Validate a raw API token.
 
     Returns the token name on success, ``None`` on failure.  Updates
@@ -92,7 +88,10 @@ def validate_token(
                 entry["last_used_at"] = datetime.now(timezone.utc).isoformat()
                 _write_tokens(tf, data)
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to update last_used_at for token (best-effort)",
+                    exc_info=True,
+                )
             return entry["name"]
 
     return None
@@ -117,9 +116,7 @@ def list_tokens(*, tokens_file: Path | None = None) -> list[dict]:
     ]
 
 
-def revoke_token(
-    token_id: str, *, tokens_file: Path | None = None
-) -> bool:
+def revoke_token(token_id: str, *, tokens_file: Path | None = None) -> bool:
     """Revoke a token by its ID.
 
     Returns ``True`` if the token was found and removed, ``False`` otherwise.

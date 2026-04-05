@@ -115,7 +115,7 @@ class TestRequireAuth:
         request = MagicMock()
         request.cookies = {}
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.get_event_loop().run_until_complete(require_auth(request))
+            asyncio.run(require_auth(request))
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail["code"] == "UNAUTHORIZED"  # type: ignore[index]
 
@@ -125,7 +125,7 @@ class TestRequireAuth:
         request = MagicMock()
         request.cookies = {"frontdoor_session": "garbage-token"}
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.get_event_loop().run_until_complete(require_auth(request))
+            asyncio.run(require_auth(request))
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail["code"] == "UNAUTHORIZED"  # type: ignore[index]
 
@@ -142,7 +142,7 @@ class TestRequireAuth:
         mock_settings.session_timeout = 3600
 
         with patch("frontdoor.auth.settings", mock_settings):
-            result = asyncio.get_event_loop().run_until_complete(require_auth(request))
+            result = asyncio.run(require_auth(request))
         assert result == "alice"
 
 

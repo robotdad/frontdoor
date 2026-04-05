@@ -40,7 +40,9 @@ class Settings:
         )
     )
     self_unit: str = field(
-        default_factory=lambda: os.environ.get("FRONTDOOR_SELF_UNIT", "frontdoor.service")
+        default_factory=lambda: os.environ.get(
+            "FRONTDOOR_SELF_UNIT", "frontdoor.service"
+        )
     )
     service_user: str = field(
         default_factory=lambda: os.environ.get("FRONTDOOR_SERVICE_USER", "")

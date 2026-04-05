@@ -43,9 +43,7 @@ class TestLocalhostBypass:
         request = _make_request(host="127.0.0.1")
 
         with patch("frontdoor.auth.settings", mock_settings):
-            result = asyncio.get_event_loop().run_until_complete(
-                require_admin_auth(request)
-            )
+            result = asyncio.run(require_admin_auth(request))
         assert result == "localhost"
 
     def test_localhost_disabled(self, tmp_path):
@@ -64,9 +62,7 @@ class TestLocalhostBypass:
 
         with patch("frontdoor.auth.settings", mock_settings):
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.get_event_loop().run_until_complete(
-                    require_admin_auth(request)
-                )
+                asyncio.run(require_admin_auth(request))
         assert exc_info.value.status_code == 401
 
 
@@ -88,9 +84,7 @@ class TestTokenAuth:
         request = _make_request(host="10.0.0.5", bearer=raw_token)
 
         with patch("frontdoor.auth.settings", mock_settings):
-            result = asyncio.get_event_loop().run_until_complete(
-                require_admin_auth(request)
-            )
+            result = asyncio.run(require_admin_auth(request))
         assert result == "token:test-device"
 
     def test_invalid_bearer_token(self, tmp_path):
@@ -109,9 +103,7 @@ class TestTokenAuth:
 
         with patch("frontdoor.auth.settings", mock_settings):
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.get_event_loop().run_until_complete(
-                    require_admin_auth(request)
-                )
+                asyncio.run(require_admin_auth(request))
         assert exc_info.value.status_code == 401
 
 
@@ -132,9 +124,7 @@ class TestCookieAuth:
         request = _make_request(host="10.0.0.5", cookie=token)
 
         with patch("frontdoor.auth.settings", mock_settings):
-            result = asyncio.get_event_loop().run_until_complete(
-                require_admin_auth(request)
-            )
+            result = asyncio.run(require_admin_auth(request))
         assert result == "alice"
 
 
@@ -155,7 +145,5 @@ class TestNoAuth:
 
         with patch("frontdoor.auth.settings", mock_settings):
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.get_event_loop().run_until_complete(
-                    require_admin_auth(request)
-                )
+                asyncio.run(require_admin_auth(request))
         assert exc_info.value.status_code == 401
