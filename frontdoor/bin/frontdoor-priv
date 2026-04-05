@@ -98,18 +98,27 @@ def main() -> None:
         if action not in ALLOWED_SYSTEMCTL_ACTIONS:
             die(f"Disallowed systemctl action: {action!r}")
         if action == "daemon-reload":
-            subprocess.run(["systemctl", "daemon-reload"], check=True)
+            try:
+                subprocess.run(["systemctl", "daemon-reload"], check=True)
+            except subprocess.CalledProcessError as e:
+                die(f"systemctl daemon-reload failed (exit {e.returncode})")
         else:
             unit = payload.get("unit", "")
             if not unit.endswith(".service"):
                 die(f"Unit must end with .service: {unit!r}")
             slug_part = unit.removesuffix(".service")
             validate_slug(slug_part)
-            subprocess.run(["systemctl", action, unit], check=True)
+            try:
+                subprocess.run(["systemctl", action, unit], check=True)
+            except subprocess.CalledProcessError as e:
+                die(f"systemctl {action} {unit} failed (exit {e.returncode})")
         print(json.dumps({"ok": True}))
 
     elif operation == "caddy-reload":
-        subprocess.run(["systemctl", "reload", "caddy"], check=True)
+        try:
+            subprocess.run(["systemctl", "reload", "caddy"], check=True)
+        except subprocess.CalledProcessError as e:
+            die(f"systemctl reload caddy failed (exit {e.returncode})")
         print(json.dumps({"ok": True}))
 
 

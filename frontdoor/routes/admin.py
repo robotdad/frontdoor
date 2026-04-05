@@ -141,7 +141,7 @@ def resolve_slug_to_unit(slug: str) -> str | None:
                     return unit
             return f"{slug}.service"
 
-    return f"{slug}.service" if slug else None
+    return None
 
 
 def get_all_services() -> list[dict]:
@@ -168,6 +168,25 @@ def get_all_services() -> list[dict]:
     return services
 
 
+def _get_service_units() -> list[dict]:
+    """Return name + systemd_unit for all Caddy-registered services.
+
+    Unlike ``get_all_services()``, this does not perform TCP probes —
+    restart-all only needs unit names, not live status.
+    """
+    parsed = parse_caddy_configs(settings.caddy_main_config, settings.caddy_conf_d)
+    port_pids = get_port_pids()
+    return [
+        {
+            "name": svc["name"],
+            "systemd_unit": get_systemd_unit(port_pids[svc["internal_port"]])
+            if svc["internal_port"] in port_pids
+            else None,
+        }
+        for svc in parsed
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Service control — POST /api/admin/services/...
 # NOTE: restart-all MUST be defined before {slug}/restart
@@ -182,7 +201,7 @@ async def restart_all_services(
 
     Returns a report of what was restarted, failed, skipped, or has no unit.
     """
-    services = get_all_services()
+    services = _get_service_units()
 
     restarted: list[str] = []
     errors: dict[str, str] = {}
