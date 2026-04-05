@@ -3,16 +3,35 @@
 Protected by require_admin_auth (three-tier: localhost → bearer → cookie).
 """
 
+import json as json_module
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from frontdoor.auth import require_admin_auth
 from frontdoor.config import settings
-from frontdoor.discovery import get_port_pids, get_systemd_unit, parse_caddy_configs
+from frontdoor.discovery import (
+    get_port_pids,
+    get_systemd_unit,
+    next_available_ports,
+    parse_caddy_configs,
+)
 from frontdoor.service_control import run_privileged
 from frontdoor.tokens import create_token, list_tokens, revoke_token
+
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
+
+
+def _validate_slug(slug: str) -> None:
+    """Raise HTTP 400 if *slug* is not a valid lowercase identifier."""
+    if not SLUG_RE.match(slug):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": f"Invalid slug: {slug!r}", "code": "INVALID_SLUG"},
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -268,3 +287,94 @@ async def restart_service(
 
     logger.info("Restarted %s (%s) by %s", slug, unit, identity)
     return {"slug": slug, "unit": unit, "status": "restarted"}
+
+
+# ---------------------------------------------------------------------------
+# Port allocation — GET /api/admin/ports/next
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ports/next")
+async def get_next_ports(
+    start: int = 8440,
+    identity: str = Depends(_admin_auth),
+) -> dict:
+    """Return the next available internal + external port pair."""
+    internal, external = next_available_ports(start=start)
+    return {"internal_port": internal, "external_port": external}
+
+
+# ---------------------------------------------------------------------------
+# Manifest models
+# ---------------------------------------------------------------------------
+
+
+class ManifestRequest(BaseModel):
+    name: str
+    description: str = ""
+    icon: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Manifests — GET/PUT/DELETE /api/admin/manifests
+# ---------------------------------------------------------------------------
+
+
+@router.get("/manifests")
+async def list_manifests(
+    identity: str = Depends(_admin_auth),
+) -> list[dict]:
+    """List all installed manifests."""
+    manifest_dir = settings.manifest_dir
+    if not manifest_dir.exists():
+        return []
+
+    manifests = []
+    for path in sorted(manifest_dir.glob("*.json")):
+        try:
+            data = json_module.loads(path.read_text())
+            data["slug"] = path.stem
+            manifests.append(data)
+        except (json_module.JSONDecodeError, OSError):
+            continue
+    return manifests
+
+
+@router.put("/manifests/{slug}")
+async def set_manifest(
+    slug: str,
+    body: ManifestRequest,
+    identity: str = Depends(_admin_auth),
+) -> dict:
+    """Create or update a manifest file."""
+    _validate_slug(slug)
+
+    manifest_dir = settings.manifest_dir
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+
+    data = {"name": body.name, "description": body.description, "icon": body.icon}
+    manifest_path = manifest_dir / f"{slug}.json"
+    manifest_path.write_text(json_module.dumps(data, indent=2))
+
+    logger.info("Manifest set: %s by %s", slug, identity)
+    return {"slug": slug, "path": str(manifest_path), **data}
+
+
+@router.delete("/manifests/{slug}")
+async def delete_manifest(
+    slug: str,
+    identity: str = Depends(_admin_auth),
+) -> dict:
+    """Remove a manifest file."""
+    _validate_slug(slug)
+
+    manifest_path = settings.manifest_dir / f"{slug}.json"
+    if not manifest_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"error": f"Manifest not found: {slug}", "code": "NOT_FOUND"},
+        )
+
+    manifest_path.unlink()
+    logger.info("Manifest deleted: %s by %s", slug, identity)
+    return {"status": "deleted", "slug": slug}

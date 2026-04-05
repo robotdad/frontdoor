@@ -203,3 +203,116 @@ class TestServiceControlEndpoints:
 
         assert resp.status_code == 500
         assert resp.json()["detail"]["code"] == "RESTART_FAILED"
+
+
+class TestPortAllocation:
+    def test_next_port(self, admin_client):
+        """GET /api/admin/ports/next returns internal and external ports."""
+        client, _ = admin_client
+
+        with patch(
+            "frontdoor.routes.admin.next_available_ports",
+            return_value=(8450, 8451),
+        ):
+            resp = client.get("/api/admin/ports/next")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["internal_port"] == 8450
+        assert data["external_port"] == 8451
+
+    def test_next_port_with_start(self, admin_client):
+        """GET /api/admin/ports/next?start=9000 passes start parameter."""
+        client, _ = admin_client
+
+        with patch(
+            "frontdoor.routes.admin.next_available_ports",
+            return_value=(9000, 9001),
+        ) as mock_nap:
+            resp = client.get("/api/admin/ports/next?start=9000")
+
+        assert resp.status_code == 200
+        mock_nap.assert_called_once_with(start=9000)
+
+
+class TestManifestEndpoints:
+    def test_put_manifest(self, admin_client, tmp_path):
+        """PUT /api/admin/manifests/{slug} creates a manifest file."""
+        client, _ = admin_client
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+
+        try:
+            resp = client.put(
+                "/api/admin/manifests/myapp",
+                json={"name": "My App", "description": "Does stuff", "icon": "rocket"},
+            )
+
+            assert resp.status_code == 200
+            assert (manifest_dir / "myapp.json").exists()
+
+            import json as json_mod
+
+            data = json_mod.loads((manifest_dir / "myapp.json").read_text())
+            assert data["name"] == "My App"
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+    def test_get_manifests(self, admin_client, tmp_path):
+        """GET /api/admin/manifests lists all installed manifests."""
+        client, _ = admin_client
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+
+        try:
+            import json as json_mod
+
+            (manifest_dir / "app1.json").write_text(
+                json_mod.dumps({"name": "App 1", "description": "First"})
+            )
+            (manifest_dir / "app2.json").write_text(
+                json_mod.dumps({"name": "App 2", "description": "Second"})
+            )
+
+            resp = client.get("/api/admin/manifests")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data) == 2
+            slugs = [m["slug"] for m in data]
+            assert "app1" in slugs
+            assert "app2" in slugs
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+    def test_delete_manifest(self, admin_client, tmp_path):
+        """DELETE /api/admin/manifests/{slug} removes the manifest file."""
+        client, _ = admin_client
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+
+        try:
+            import json as json_mod
+
+            (manifest_dir / "myapp.json").write_text(json_mod.dumps({"name": "My App"}))
+
+            resp = client.delete("/api/admin/manifests/myapp")
+            assert resp.status_code == 200
+            assert not (manifest_dir / "myapp.json").exists()
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+    def test_invalid_slug_rejected(self, admin_client):
+        """PUT /api/admin/manifests with invalid slug returns 400."""
+        client, _ = admin_client
+
+        resp = client.put(
+            "/api/admin/manifests/INVALID",
+            json={"name": "Bad"},
+        )
+        assert resp.status_code == 400
