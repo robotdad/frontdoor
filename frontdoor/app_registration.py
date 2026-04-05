@@ -275,6 +275,135 @@ def register_app(
     }
 
 
+# ---------------------------------------------------------------------------
+# Known-app install
+# ---------------------------------------------------------------------------
+
+
+def _known_apps_dir() -> Path:
+    """Return the path to the known-apps directory."""
+    return Path(__file__).parent.parent / "known-apps"
+
+
+def list_known_apps() -> list[dict]:
+    """List available known-app configurations.
+
+    Returns:
+        List of dicts with ``name``, ``description``, ``files``, and
+        ``readme_url`` for each known app found in the known-apps directory.
+    """
+    base = _known_apps_dir()
+    if not base.exists():
+        return []
+
+    apps = []
+    for app_dir in sorted(base.iterdir()):
+        if not app_dir.is_dir():
+            continue
+        files = [f.name for f in sorted(app_dir.iterdir()) if f.is_file()]
+        description = ""
+        json_file = app_dir / f"{app_dir.name}.json"
+        if json_file.exists():
+            try:
+                data = json.loads(json_file.read_text())
+                description = data.get("description", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        readme_file = app_dir / "README.md"
+        apps.append(
+            {
+                "name": app_dir.name,
+                "description": description,
+                "files": files,
+                "readme_url": f"/known-apps/{app_dir.name}/README.md"
+                if readme_file.exists()
+                else None,
+            }
+        )
+    return apps
+
+
+def install_known_app(appname: str, service_user: str) -> dict:
+    """Install a known-app configuration.
+
+    Reads template files from the known-apps directory, substitutes
+    template variables (plain identifiers, no braces), and writes them
+    via ``run_privileged``.
+
+    Template variables substituted:
+    - ``SERVICE_USER`` → ``service_user`` argument
+    - ``FQDN`` → detected from Tailscale / hostname
+    - ``CERT_PATH`` → detected certificate path (empty string if not found)
+    - ``KEY_PATH`` → detected key path (empty string if not found)
+    - ``FRONTDOOR_PORT`` → ``settings.port``
+
+    Args:
+        appname: Directory name under known-apps/ to install.
+        service_user: OS user to run the service as.
+
+    Returns:
+        Installation result dict.
+
+    Raises:
+        FileNotFoundError: If the known-app directory doesn't exist.
+        RuntimeError: If any privileged operation fails.
+    """
+    base = _known_apps_dir()
+    app_dir = base / appname
+    if not app_dir.is_dir():
+        raise FileNotFoundError(f"Known app not found: {appname}")
+
+    fqdn = detect_fqdn()
+    cert_path, key_path = detect_cert_paths()
+
+    subs = {
+        "SERVICE_USER": service_user,
+        "FQDN": fqdn,
+        "CERT_PATH": cert_path or "",
+        "KEY_PATH": key_path or "",
+        "FRONTDOOR_PORT": str(settings.port),
+    }
+
+    def _substitute(content: str) -> str:
+        result = content
+        for key, value in subs.items():
+            result = result.replace(key, value)
+        return result
+
+    caddy_file = app_dir / f"{appname}.caddy"
+    service_file = app_dir / f"{appname}.service"
+    json_file = app_dir / f"{appname}.json"
+
+    if caddy_file.exists():
+        caddy_content = _substitute(caddy_file.read_text())
+        run_privileged("write-caddy", slug=appname, content=caddy_content)
+
+    if service_file.exists():
+        service_content = _substitute(service_file.read_text())
+        run_privileged("write-service", slug=appname, content=service_content)
+
+    if json_file.exists():
+        manifest_dir = settings.manifest_dir
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / f"{appname}.json").write_text(json_file.read_text())
+
+    run_privileged("caddy-reload")
+    run_privileged("systemctl", action="daemon-reload")
+    run_privileged("systemctl", action="enable", unit=f"{appname}.service")
+    run_privileged("systemctl", action="start", unit=f"{appname}.service")
+
+    logger.info("Installed known app: %s (user=%s)", appname, service_user)
+
+    return {
+        "slug": appname,
+        "caddy_config": f"/etc/caddy/conf.d/{appname}.caddy",
+        "service_unit": f"/etc/systemd/system/{appname}.service",
+        "manifest": str(settings.manifest_dir / f"{appname}.json"),
+        "service_status": "start_requested",
+    }
+
+
 def unregister_app(slug: str) -> None:
     """Unregister an app: stop service, remove all config files.
 

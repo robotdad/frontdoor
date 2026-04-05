@@ -1,5 +1,6 @@
 """Tests for frontdoor/app_registration.py — template rendering and registration."""
 
+import pytest
 import frontdoor.config as config_module
 from unittest.mock import patch
 
@@ -181,6 +182,117 @@ class TestRegisterApp:
         assert manifest_path.exists()
         data = json.loads(manifest_path.read_text())
         assert data["name"] == "Test App"
+
+
+class TestInstallKnownApp:
+    def test_reads_and_substitutes_templates(self, tmp_path):
+        """install_known_app reads templates and substitutes variables."""
+        from frontdoor.app_registration import install_known_app
+
+        known_dir = tmp_path / "known-apps" / "testapp"
+        known_dir.mkdir(parents=True)
+        (known_dir / "testapp.caddy").write_text(
+            "FQDN:8555 {\n    reverse_proxy localhost:8556\n}\n"
+        )
+        (known_dir / "testapp.service").write_text(
+            "[Service]\nUser=SERVICE_USER\nExecStart=/usr/bin/testapp\n"
+        )
+        (known_dir / "testapp.json").write_text(
+            '{"name": "Test App", "description": "A test"}\n'
+        )
+
+        manifest_dir = tmp_path / "manifests"
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+
+        try:
+            with (
+                patch(
+                    "frontdoor.app_registration.detect_fqdn",
+                    return_value="ambrose.ts.net",
+                ),
+                patch(
+                    "frontdoor.app_registration.detect_cert_paths",
+                    return_value=("/etc/ssl/ts/ambrose.crt", "/etc/ssl/ts/ambrose.key"),
+                ),
+                patch("frontdoor.app_registration.run_privileged") as mock_priv,
+                patch(
+                    "frontdoor.app_registration._known_apps_dir",
+                    return_value=tmp_path / "known-apps",
+                ),
+            ):
+                install_known_app("testapp", service_user="robotdad")
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+        # Verify caddy content had FQDN substituted
+        caddy_call = next(
+            c for c in mock_priv.call_args_list if c.args[0] == "write-caddy"
+        )
+        caddy_content = caddy_call.kwargs.get("content", "")
+        assert "ambrose.ts.net" in caddy_content
+        assert "FQDN" not in caddy_content
+
+        # Verify service content had SERVICE_USER substituted
+        svc_call = next(
+            c for c in mock_priv.call_args_list if c.args[0] == "write-service"
+        )
+        svc_content = svc_call.kwargs.get("content", "")
+        assert "robotdad" in svc_content
+        assert "SERVICE_USER" not in svc_content
+
+    def test_unknown_app_raises(self, tmp_path):
+        """install_known_app raises FileNotFoundError for unknown app names."""
+        from frontdoor.app_registration import install_known_app
+
+        with (
+            patch(
+                "frontdoor.app_registration._known_apps_dir",
+                return_value=tmp_path / "known-apps",
+            ),
+            pytest.raises(FileNotFoundError),
+        ):
+            install_known_app("nonexistent", service_user="robotdad")
+
+
+class TestListKnownApps:
+    def test_lists_available_apps(self, tmp_path):
+        """list_known_apps returns apps found in known-apps directory."""
+        from frontdoor.app_registration import list_known_apps
+        import json
+
+        known_dir = tmp_path / "known-apps"
+        app_dir = known_dir / "muxplex"
+        app_dir.mkdir(parents=True)
+        (app_dir / "muxplex.caddy").write_text("server { }")
+        (app_dir / "muxplex.json").write_text(
+            json.dumps({"name": "Muxplex", "description": "Tmux dashboard"})
+        )
+
+        with patch(
+            "frontdoor.app_registration._known_apps_dir",
+            return_value=known_dir,
+        ):
+            result = list_known_apps()
+
+        assert len(result) == 1
+        assert result[0]["name"] == "muxplex"
+        assert result[0]["description"] == "Tmux dashboard"
+
+    def test_empty_directory_returns_empty_list(self, tmp_path):
+        """list_known_apps returns [] when no known apps exist."""
+        from frontdoor.app_registration import list_known_apps
+
+        known_dir = tmp_path / "known-apps"
+        known_dir.mkdir()
+
+        with patch(
+            "frontdoor.app_registration._known_apps_dir",
+            return_value=known_dir,
+        ):
+            result = list_known_apps()
+
+        assert result == []
 
 
 class TestUnregisterApp:
