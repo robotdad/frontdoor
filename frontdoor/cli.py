@@ -169,7 +169,7 @@ def _api_request(
             headers=headers,
             timeout=30,
         )
-    except httpx.ConnectError:
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.TransportError):
         click.echo(f"Error: could not connect to {url}", err=True)
         sys.exit(1)
 
@@ -335,11 +335,7 @@ def services() -> None:
 @services.command("list")
 @click.pass_context
 def services_list(ctx: click.Context) -> None:
-    """List all services with systemd unit information.
-
-    Note: hits /api/services (not /api/admin/services). Remote use requires
-    bearer token support on that endpoint (tracked as a known gap).
-    """
+    """List all services with systemd unit information."""
     url, token = _resolve_target(ctx)
     full_url = f"{url.rstrip('/')}/api/services"
     headers = {}
@@ -347,11 +343,13 @@ def services_list(ctx: click.Context) -> None:
         headers["Authorization"] = f"Bearer {token}"
     try:
         resp = httpx.get(full_url, headers=headers, timeout=30)
-        result = resp.json()
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.TransportError):
+        click.echo(f"Error: could not connect to {url}", err=True)
         sys.exit(1)
-    click.echo(json.dumps(result, indent=2))
+    if resp.status_code >= 400:
+        click.echo(f"Error ({resp.status_code}): {resp.text}", err=True)
+        sys.exit(1)
+    click.echo(json.dumps(resp.json(), indent=2))
 
 
 @services.command("restart")
