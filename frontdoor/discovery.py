@@ -259,6 +259,60 @@ def get_port_pids() -> dict[int, int]:
     return port_pids
 
 
+def next_available_ports(start: int = 8440) -> tuple[int, int]:
+    """Return the next available ``(internal_port, external_port)`` pair.
+
+    Checks three sources for used ports:
+
+    1. Caddy ``conf.d`` — external **and** internal ports from existing vhost configs
+       (handles services that are registered but currently down)
+    2. ``ss -tlnp`` — all currently-bound ports (live reality)
+    3. :data:`RESERVED_PORTS` from ``frontdoor/ports.py``
+
+    The union of sources 1 and 2 prevents reusing a port that belongs
+    to a registered-but-down service.
+
+    Returns two distinct free ports starting from *start*.
+
+    Raises:
+        RuntimeError: If no free port pair is found before port 65535.
+    """
+    # Collect Caddy-used ports (both external vhost ports and internal proxy targets)
+    caddy_used: set[int] = set()
+    parsed = parse_caddy_configs(settings.caddy_main_config, settings.caddy_conf_d)
+    for svc in parsed:
+        caddy_used.add(svc["internal_port"])
+    if settings.caddy_conf_d.exists():
+        for caddy_file in settings.caddy_conf_d.glob("*.caddy"):
+            try:
+                content = caddy_file.read_text()
+                addr_match = re.search(r":(\d+)\s*\{", content)
+                if addr_match:
+                    caddy_used.add(int(addr_match.group(1)))
+            except Exception:
+                pass
+
+    # Collect live-used ports from ss
+    port_pids = get_port_pids()
+    live_used: set[int] = set(port_pids.keys())
+
+    # Union of all used ports
+    all_used = caddy_used | live_used | RESERVED_PORTS | {settings.port}
+
+    # Find two distinct free ports
+    found: list[int] = []
+    port = start
+    while len(found) < 2 and port <= 65535:
+        if port not in all_used:
+            found.append(port)
+        port += 1
+
+    if len(found) < 2:
+        raise RuntimeError(f"No available port pair found starting from {start}")
+
+    return found[0], found[1]
+
+
 def get_systemd_unit(pid: int, proc_root: Path | None = None) -> str | None:
     """Return the systemd unit name for *pid*, or ``None``.
 

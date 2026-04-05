@@ -98,3 +98,71 @@ class TestGetSystemdUnit:
 
         result = get_systemd_unit(5678, proc_root=tmp_path)
         assert result == "filebrowser.service"
+
+
+class TestNextAvailablePorts:
+    def test_returns_pair_of_free_ports(self, tmp_path):
+        """next_available_ports returns (internal, external) pair."""
+        from frontdoor.discovery import next_available_ports
+        from unittest.mock import MagicMock, patch
+
+        conf_d = tmp_path / "conf.d"
+        conf_d.mkdir()
+        (conf_d / "muxplex.caddy").write_text(
+            ":8441 {\n    reverse_proxy localhost:8088\n}\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = (
+            "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+            'tcp   LISTEN 0      128    0.0.0.0:8088      0.0.0.0:*         users:(("uvicorn",pid=1,fd=6))\n'
+        )
+
+        with (
+            patch("frontdoor.discovery.subprocess.run", return_value=mock_result),
+            patch("frontdoor.discovery.settings") as mock_settings,
+        ):
+            mock_settings.port = 8420
+            mock_settings.caddy_conf_d = conf_d
+            mock_settings.caddy_main_config = tmp_path / "Caddyfile"
+            (tmp_path / "Caddyfile").write_text("")
+
+            internal, external = next_available_ports(start=8440)
+
+        assert internal != external
+        assert internal >= 8440
+        assert external >= 8440
+
+    def test_skips_used_ports(self, tmp_path):
+        """next_available_ports skips ports used by Caddy or live processes."""
+        from frontdoor.discovery import next_available_ports
+        from unittest.mock import MagicMock, patch
+
+        conf_d = tmp_path / "conf.d"
+        conf_d.mkdir()
+        (conf_d / "app1.caddy").write_text(
+            ":8440 {\n    reverse_proxy localhost:8440\n}\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = (
+            "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+            'tcp   LISTEN 0      128    0.0.0.0:8440      0.0.0.0:*         users:(("app1",pid=1,fd=6))\n'
+            'tcp   LISTEN 0      128    0.0.0.0:8441      0.0.0.0:*         users:(("app2",pid=2,fd=7))\n'
+        )
+
+        with (
+            patch("frontdoor.discovery.subprocess.run", return_value=mock_result),
+            patch("frontdoor.discovery.settings") as mock_settings,
+        ):
+            mock_settings.port = 8420
+            mock_settings.caddy_conf_d = conf_d
+            mock_settings.caddy_main_config = tmp_path / "Caddyfile"
+            (tmp_path / "Caddyfile").write_text("")
+
+            internal, external = next_available_ports(start=8440)
+
+        assert internal >= 8442
+        assert external > internal
