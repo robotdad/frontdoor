@@ -8,6 +8,8 @@ from starlette.concurrency import run_in_threadpool
 from frontdoor.auth import require_auth
 from frontdoor.config import settings
 from frontdoor.discovery import (
+    get_port_pids,
+    get_systemd_unit,
     overlay_manifests,
     parse_caddy_configs,
     scan_processes,
@@ -25,7 +27,10 @@ def _collect_services() -> dict:
     parsed = parse_caddy_configs(settings.caddy_main_config, settings.caddy_conf_d)
     logger.debug("Parsed %d services from Caddy config", len(parsed))
 
-    # 2. Build service list with live-status probing.
+    # 1b. Build port→pid mapping for systemd unit enrichment (one ss call).
+    port_pids = get_port_pids()
+
+    # 2. Build service list with live-status probing and systemd unit enrichment.
     services: list[dict] = []
     up_count = 0
     down_count = 0
@@ -35,11 +40,17 @@ def _collect_services() -> dict:
             up_count += 1
         else:
             down_count += 1
+
+        # Resolve systemd unit via PID cgroup lookup.
+        pid = port_pids.get(svc["internal_port"])
+        unit = get_systemd_unit(pid) if pid else None
+
         services.append(
             {
                 "name": svc["name"],
                 "url": svc["external_url"],
                 "status": "up" if is_up else "down",
+                "systemd_unit": unit,
             }
         )
     logger.debug("TCP probes complete: %d up, %d down", up_count, down_count)

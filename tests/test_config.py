@@ -66,3 +66,59 @@ def test_cookie_domain_from_env(monkeypatch):
 
     s = Settings()
     assert s.cookie_domain == ".example.com"
+
+
+class TestAdminSettings:
+    def test_tokens_file_default(self):
+        """tokens_file defaults to /opt/frontdoor/tokens.json."""
+        from frontdoor.config import Settings
+        from pathlib import Path
+        s = Settings()
+        assert s.tokens_file == Path("/opt/frontdoor/tokens.json")
+
+    def test_allow_localhost_admin_default(self):
+        """allow_localhost_admin defaults to True."""
+        from frontdoor.config import Settings
+        s = Settings()
+        assert s.allow_localhost_admin is True
+
+    def test_self_unit_default(self):
+        """self_unit defaults to 'frontdoor.service'."""
+        from frontdoor.config import Settings
+        s = Settings()
+        assert s.self_unit == "frontdoor.service"
+
+    def test_service_user_default_empty(self):
+        """service_user defaults to empty string."""
+        from frontdoor.config import Settings
+        s = Settings()
+        assert s.service_user == ""
+
+    def test_tokens_file_from_env(self, monkeypatch):
+        """tokens_file reads from FRONTDOOR_TOKENS_FILE env var."""
+        from frontdoor.config import Settings
+        from pathlib import Path
+        monkeypatch.setenv("FRONTDOOR_TOKENS_FILE", "/custom/tokens.json")
+        s = Settings()
+        assert s.tokens_file == Path("/custom/tokens.json")
+
+    def test_allow_localhost_admin_from_env(self, monkeypatch):
+        """allow_localhost_admin reads from FRONTDOOR_ALLOW_LOCALHOST_ADMIN env var."""
+        from frontdoor.config import Settings
+        monkeypatch.setenv("FRONTDOOR_ALLOW_LOCALHOST_ADMIN", "false")
+        s = Settings()
+        assert s.allow_localhost_admin is False
+
+    def test_self_unit_from_env(self, monkeypatch):
+        """self_unit reads from FRONTDOOR_SELF_UNIT env var."""
+        from frontdoor.config import Settings
+        monkeypatch.setenv("FRONTDOOR_SELF_UNIT", "myapp.service")
+        s = Settings()
+        assert s.self_unit == "myapp.service"
+
+    def test_service_user_from_env(self, monkeypatch):
+        """service_user reads from FRONTDOOR_SERVICE_USER env var."""
+        from frontdoor.config import Settings
+        monkeypatch.setenv("FRONTDOOR_SERVICE_USER", "robotdad")
+        s = Settings()
+        assert s.service_user == "robotdad"

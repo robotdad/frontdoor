@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from frontdoor.config import settings
-from frontdoor.routes import auth, services
+from frontdoor.routes import admin, auth, services
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -39,6 +39,9 @@ app.include_router(auth.router)
 
 # Include the services router (provides GET /api/services).
 app.include_router(services.router)
+
+# Include the admin router (provides /api/admin/* management endpoints).
+app.include_router(admin.router)
 
 # Conditionally mount the static file directory if it exists.
 _static_dir = Path(__file__).parent / "static"

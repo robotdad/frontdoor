@@ -29,6 +29,24 @@ class Settings:
     log_level: str = field(
         default_factory=lambda: os.environ.get("FRONTDOOR_LOG_LEVEL", "info")
     )
+    tokens_file: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get("FRONTDOOR_TOKENS_FILE", "/opt/frontdoor/tokens.json")
+        )
+    )
+    allow_localhost_admin: bool = field(
+        default_factory=lambda: (
+            os.environ.get("FRONTDOOR_ALLOW_LOCALHOST_ADMIN", "true").lower() == "true"
+        )
+    )
+    self_unit: str = field(
+        default_factory=lambda: os.environ.get(
+            "FRONTDOOR_SELF_UNIT", "frontdoor.service"
+        )
+    )
+    service_user: str = field(
+        default_factory=lambda: os.environ.get("FRONTDOOR_SERVICE_USER", "")
+    )
 
 
 settings = Settings()
