@@ -311,8 +311,27 @@ class TestManifestEndpoints:
         """PUT /api/admin/manifests with invalid slug returns 400."""
         client, _ = admin_client
 
-        resp = client.put(
-            "/api/admin/manifests/INVALID",
-            json={"name": "Bad"},
-        )
+        # Uppercase not allowed
+        resp = client.put("/api/admin/manifests/INVALID", json={"name": "Bad"})
         assert resp.status_code == 400
+
+        # Trailing hyphen not allowed
+        resp = client.put("/api/admin/manifests/myapp-", json={"name": "Bad"})
+        assert resp.status_code == 400
+
+        # Single character not allowed (min 2 chars)
+        resp = client.put("/api/admin/manifests/a", json={"name": "Bad"})
+        assert resp.status_code == 400
+
+    def test_delete_nonexistent_returns_404(self, admin_client, tmp_path):
+        """DELETE /api/admin/manifests/{slug} returns 404 for missing manifest."""
+        client, _ = admin_client
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+        try:
+            resp = client.delete("/api/admin/manifests/nonexistent")
+            assert resp.status_code == 404
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir

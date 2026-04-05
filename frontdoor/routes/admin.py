@@ -21,7 +21,7 @@ from frontdoor.discovery import (
 from frontdoor.service_control import run_privileged
 from frontdoor.tokens import create_token, list_tokens, revoke_token
 
-SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
 
 
 def _validate_slug(slug: str) -> None:
