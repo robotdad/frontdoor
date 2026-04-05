@@ -84,7 +84,9 @@ name = "frontdoor"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "itsdangerous" },
     { name = "python-multipart" },
     { name = "python-pam" },
@@ -106,7 +108,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "httpx", marker = "extra == 'dev'" },
     { name = "itsdangerous" },
     { name = "pytest", marker = "extra == 'dev'" },
