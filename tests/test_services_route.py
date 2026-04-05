@@ -167,6 +167,31 @@ class TestGetServices:
         assert unregistered[0]["name"] == "java"
         assert unregistered[0]["port"] == 9200
 
+    def test_services_include_systemd_unit(self, service_client):
+        """Each service object includes a 'systemd_unit' field (may be null)."""
+        from unittest.mock import patch
+
+        with (
+            patch("socket.create_connection"),
+            patch(
+                "frontdoor.routes.services.get_port_pids",
+                return_value={8445: 1111, 8443: 2222},
+            ),
+            patch(
+                "frontdoor.routes.services.get_systemd_unit",
+                side_effect=lambda pid, **kw: {
+                    1111: "dev-machine-monitor.service",
+                    2222: "filebrowser.service",
+                }.get(pid),
+            ),
+        ):
+            resp = service_client.get("/api/services")
+
+        assert resp.status_code == 200
+        services = resp.json()["services"]
+        for svc in services:
+            assert "systemd_unit" in svc
+
     def test_frontdoor_excluded(self, service_client):
         """No service URL references port 8420 (frontdoor's own port is always excluded)."""
         with (
