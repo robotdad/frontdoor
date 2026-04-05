@@ -10,6 +10,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from frontdoor.app_registration import register_app, unregister_app
 from frontdoor.auth import require_admin_auth
 from frontdoor.config import settings
 from frontdoor.discovery import (
@@ -378,3 +379,98 @@ async def delete_manifest(
     manifest_path.unlink()
     logger.info("Manifest deleted: %s by %s", slug, identity)
     return {"status": "deleted", "slug": slug}
+
+
+# ---------------------------------------------------------------------------
+# App registration models
+# ---------------------------------------------------------------------------
+
+
+class AppRegistrationRequest(BaseModel):
+    slug: str
+    name: str = ""
+    description: str = ""
+    icon: str = ""
+    internal_port: int
+    external_port: int
+    exec_start: str
+    service_user: str = ""
+    kill_mode: str | None = None
+    websocket_paths: list[str] | None = None
+
+
+# ---------------------------------------------------------------------------
+# App registration — POST/DELETE /api/admin/apps
+# ---------------------------------------------------------------------------
+
+
+@router.post("/apps", status_code=201)
+async def register_new_app(
+    body: AppRegistrationRequest,
+    identity: str = Depends(_admin_auth),
+) -> dict:
+    """Register a new app (Caddy config + systemd unit + manifest)."""
+    _validate_slug(body.slug)
+
+    manifest_path = settings.manifest_dir / f"{body.slug}.json"
+    if manifest_path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": f"App {body.slug!r} already registered. Unregister first.",
+                "code": "CONFLICT",
+            },
+        )
+
+    service_user = body.service_user or settings.service_user
+    if not service_user:
+        import os
+
+        try:
+            service_user = os.getlogin()
+        except OSError:
+            service_user = "root"
+
+    name = body.name or body.slug.replace("-", " ").title()
+
+    try:
+        result = register_app(
+            slug=body.slug,
+            name=name,
+            description=body.description,
+            icon=body.icon,
+            internal_port=body.internal_port,
+            external_port=body.external_port,
+            exec_start=body.exec_start,
+            service_user=service_user,
+            kill_mode=body.kill_mode,
+            websocket_paths=body.websocket_paths,
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": str(e), "code": "REGISTRATION_FAILED"},
+        )
+
+    logger.info("App registered: %s by %s", body.slug, identity)
+    return result
+
+
+@router.delete("/apps/{slug}")
+async def unregister_existing_app(
+    slug: str,
+    identity: str = Depends(_admin_auth),
+) -> dict:
+    """Unregister an app (remove Caddy config, systemd unit, and manifest)."""
+    _validate_slug(slug)
+
+    try:
+        unregister_app(slug)
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": str(e), "code": "UNREGISTRATION_FAILED"},
+        )
+
+    logger.info("App unregistered: %s by %s", slug, identity)
+    return {"status": "unregistered", "slug": slug}

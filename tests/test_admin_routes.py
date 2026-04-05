@@ -335,3 +335,84 @@ class TestManifestEndpoints:
             assert resp.status_code == 404
         finally:
             config_module.settings.manifest_dir = orig_manifest_dir
+
+
+class TestAppRegistration:
+    def test_register_app(self, admin_client, tmp_path):
+        """POST /api/admin/apps registers a new app."""
+        client, _ = admin_client
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+        try:
+            with (
+                patch(
+                    "frontdoor.app_registration.detect_fqdn", return_value="test.local"
+                ),
+                patch(
+                    "frontdoor.app_registration.detect_cert_paths",
+                    return_value=(None, None),
+                ),
+                patch("frontdoor.app_registration.run_privileged"),
+            ):
+                resp = client.post(
+                    "/api/admin/apps",
+                    json={
+                        "slug": "myapp",
+                        "name": "My App",
+                        "description": "A test app",
+                        "icon": "rocket",
+                        "internal_port": 8450,
+                        "external_port": 8451,
+                        "exec_start": "/opt/myapp/run",
+                        "service_user": "robotdad",
+                    },
+                )
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["slug"] == "myapp"
+        assert data["internal_port"] == 8450
+
+    def test_register_app_conflict(self, admin_client, tmp_path):
+        """POST /api/admin/apps returns 409 if slug already registered."""
+        client, _ = admin_client
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        (manifest_dir / "myapp.json").write_text('{"name": "Existing"}')
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+        try:
+            resp = client.post(
+                "/api/admin/apps",
+                json={
+                    "slug": "myapp",
+                    "internal_port": 8450,
+                    "external_port": 8451,
+                    "exec_start": "/opt/myapp/run",
+                },
+            )
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+        assert resp.status_code == 409
+
+    def test_unregister_app(self, admin_client, tmp_path):
+        """DELETE /api/admin/apps/{slug} unregisters an app."""
+        client, _ = admin_client
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        (manifest_dir / "myapp.json").write_text('{"name": "My App"}')
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+        try:
+            with patch("frontdoor.app_registration.run_privileged"):
+                resp = client.delete("/api/admin/apps/myapp")
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+        assert resp.status_code == 200
+        assert not (manifest_dir / "myapp.json").exists()
