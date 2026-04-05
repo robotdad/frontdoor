@@ -81,3 +81,78 @@ class TestTokenEndpoints:
                     json={"name": "escalated"},
                 )
         assert resp.status_code == 403
+
+
+class TestServiceControlEndpoints:
+    def test_restart_single_service(self, admin_client):
+        """POST /api/admin/services/{slug}/restart calls run_privileged."""
+        client, _ = admin_client
+
+        with (
+            patch("frontdoor.routes.admin.resolve_slug_to_unit", return_value="muxplex.service"),
+            patch("frontdoor.routes.admin.run_privileged") as mock_priv,
+        ):
+            resp = client.post("/api/admin/services/muxplex/restart")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["unit"] == "muxplex.service"
+        assert data["status"] == "restarted"
+        mock_priv.assert_called_once_with(
+            "systemctl", action="restart", unit="muxplex.service"
+        )
+
+    def test_restart_unknown_slug_returns_404(self, admin_client):
+        """POST /api/admin/services/{slug}/restart returns 404 for unknown slug."""
+        client, _ = admin_client
+
+        with patch("frontdoor.routes.admin.resolve_slug_to_unit", return_value=None):
+            resp = client.post("/api/admin/services/nonexistent/restart")
+
+        assert resp.status_code == 404
+
+    def test_restart_all(self, admin_client):
+        """POST /api/admin/services/restart-all restarts all except frontdoor."""
+        client, _ = admin_client
+
+        services = [
+            {"name": "Muxplex", "url": "https://...", "status": "up", "systemd_unit": "muxplex.service"},
+            {"name": "Filebrowser", "url": "https://...", "status": "up", "systemd_unit": "filebrowser.service"},
+            {"name": "Frontdoor", "url": "https://...", "status": "up", "systemd_unit": "frontdoor.service"},
+            {"name": "DevProc", "url": "https://...", "status": "up", "systemd_unit": None},
+        ]
+
+        with (
+            patch("frontdoor.routes.admin.get_all_services", return_value=services),
+            patch("frontdoor.routes.admin.run_privileged") as mock_priv,
+        ):
+            resp = client.post("/api/admin/services/restart-all")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "muxplex.service" in data["restarted"]
+        assert "filebrowser.service" in data["restarted"]
+        assert any(s["unit"] == "frontdoor.service" for s in data["skipped"])
+        assert "DevProc" in data["no_unit"]
+        assert mock_priv.call_count == 2
+
+    def test_restart_all_error_handling(self, admin_client):
+        """POST /api/admin/services/restart-all reports errors per-service."""
+        client, _ = admin_client
+
+        services = [
+            {"name": "Muxplex", "url": "https://...", "status": "up", "systemd_unit": "muxplex.service"},
+        ]
+
+        with (
+            patch("frontdoor.routes.admin.get_all_services", return_value=services),
+            patch(
+                "frontdoor.routes.admin.run_privileged",
+                side_effect=RuntimeError("timeout"),
+            ),
+        ):
+            resp = client.post("/api/admin/services/restart-all")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "muxplex.service" in data["errors"]
