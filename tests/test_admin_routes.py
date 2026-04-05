@@ -1,6 +1,5 @@
 """Tests for /api/admin/* endpoints."""
 
-import json
 import pytest
 from starlette.testclient import TestClient
 from unittest.mock import patch
@@ -68,3 +67,17 @@ class TestTokenEndpoints:
         client, _ = admin_client
         resp = client.delete("/api/admin/tokens/tok_doesnotexist")
         assert resp.status_code == 404
+
+    def test_create_token_via_bearer_rejected(self, tmp_path):
+        """POST /api/admin/tokens via bearer token identity returns 403."""
+        # Patch require_admin_auth to return bearer identity (simulates remote token auth)
+        with patch(
+            "frontdoor.routes.admin.require_admin_auth",
+            return_value="token:some-device",
+        ):
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/api/admin/tokens",
+                    json={"name": "escalated"},
+                )
+        assert resp.status_code == 403

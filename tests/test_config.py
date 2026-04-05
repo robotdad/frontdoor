@@ -93,3 +93,32 @@ class TestAdminSettings:
         from frontdoor.config import Settings
         s = Settings()
         assert s.service_user == ""
+
+    def test_tokens_file_from_env(self, monkeypatch):
+        """tokens_file reads from FRONTDOOR_TOKENS_FILE env var."""
+        from frontdoor.config import Settings
+        from pathlib import Path
+        monkeypatch.setenv("FRONTDOOR_TOKENS_FILE", "/custom/tokens.json")
+        s = Settings()
+        assert s.tokens_file == Path("/custom/tokens.json")
+
+    def test_allow_localhost_admin_from_env(self, monkeypatch):
+        """allow_localhost_admin reads from FRONTDOOR_ALLOW_LOCALHOST_ADMIN env var."""
+        from frontdoor.config import Settings
+        monkeypatch.setenv("FRONTDOOR_ALLOW_LOCALHOST_ADMIN", "false")
+        s = Settings()
+        assert s.allow_localhost_admin is False
+
+    def test_self_unit_from_env(self, monkeypatch):
+        """self_unit reads from FRONTDOOR_SELF_UNIT env var."""
+        from frontdoor.config import Settings
+        monkeypatch.setenv("FRONTDOOR_SELF_UNIT", "myapp.service")
+        s = Settings()
+        assert s.self_unit == "myapp.service"
+
+    def test_service_user_from_env(self, monkeypatch):
+        """service_user reads from FRONTDOOR_SERVICE_USER env var."""
+        from frontdoor.config import Settings
+        monkeypatch.setenv("FRONTDOOR_SERVICE_USER", "robotdad")
+        s = Settings()
+        assert s.service_user == "robotdad"
