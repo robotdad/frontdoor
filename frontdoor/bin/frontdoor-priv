@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""frontdoor-priv — privileged helper for frontdoor management operations.
+
+This script is the ONLY target of the frontdoor sudoers entry. It reads
+a JSON payload from stdin, validates the operation against an explicit
+allowlist, validates the slug against a strict regex, and executes the
+operation.
+
+Usage (called by frontdoor/service_control.py via sudo):
+    echo '{"operation": "systemctl", "action": "restart", "unit": "muxplex.service"}' | sudo frontdoor-priv
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
+ALLOWED_OPERATIONS = {
+    "write-caddy",
+    "delete-caddy",
+    "write-service",
+    "delete-service",
+    "systemctl",
+    "caddy-reload",
+}
+ALLOWED_SYSTEMCTL_ACTIONS = {"restart", "enable", "disable", "start", "stop", "daemon-reload"}
+
+CADDY_CONF_D = "/etc/caddy/conf.d"
+SYSTEMD_DIR = "/etc/systemd/system"
+
+
+def die(msg: str) -> None:
+    print(json.dumps({"error": msg}), file=sys.stderr)
+    sys.exit(1)
+
+
+def validate_slug(slug: str) -> None:
+    if not SLUG_RE.match(slug):
+        die(f"Invalid slug: {slug!r}")
+
+
+def main() -> None:
+    try:
+        payload = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        die(f"Invalid JSON: {e}")
+
+    operation = payload.get("operation")
+    if operation not in ALLOWED_OPERATIONS:
+        die(f"Unknown operation: {operation!r}")
+
+    if operation == "write-caddy":
+        slug = payload.get("slug", "")
+        validate_slug(slug)
+        content = payload.get("content", "")
+        if not content:
+            die("write-caddy requires non-empty content")
+        path = os.path.join(CADDY_CONF_D, f"{slug}.caddy")
+        with open(path, "w") as f:
+            f.write(content)
+        print(json.dumps({"ok": True, "path": path}))
+
+    elif operation == "delete-caddy":
+        slug = payload.get("slug", "")
+        validate_slug(slug)
+        path = os.path.join(CADDY_CONF_D, f"{slug}.caddy")
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        print(json.dumps({"ok": True, "path": path}))
+
+    elif operation == "write-service":
+        slug = payload.get("slug", "")
+        validate_slug(slug)
+        content = payload.get("content", "")
+        if not content:
+            die("write-service requires non-empty content")
+        path = os.path.join(SYSTEMD_DIR, f"{slug}.service")
+        with open(path, "w") as f:
+            f.write(content)
+        print(json.dumps({"ok": True, "path": path}))
+
+    elif operation == "delete-service":
+        slug = payload.get("slug", "")
+        validate_slug(slug)
+        path = os.path.join(SYSTEMD_DIR, f"{slug}.service")
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        print(json.dumps({"ok": True, "path": path}))
+
+    elif operation == "systemctl":
+        action = payload.get("action", "")
+        if action not in ALLOWED_SYSTEMCTL_ACTIONS:
+            die(f"Disallowed systemctl action: {action!r}")
+        if action == "daemon-reload":
+            subprocess.run(["systemctl", "daemon-reload"], check=True)
+        else:
+            unit = payload.get("unit", "")
+            if not unit.endswith(".service"):
+                die(f"Unit must end with .service: {unit!r}")
+            slug_part = unit.removesuffix(".service")
+            validate_slug(slug_part)
+            subprocess.run(["systemctl", action, unit], check=True)
+        print(json.dumps({"ok": True}))
+
+    elif operation == "caddy-reload":
+        subprocess.run(["systemctl", "reload", "caddy"], check=True)
+        print(json.dumps({"ok": True}))
+
+
+if __name__ == "__main__":
+    main()
