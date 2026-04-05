@@ -225,3 +225,73 @@ def scan_processes(skip_ports: set[int]) -> list[dict]:
         "Process scan found %d listeners, %d unregistered", listen_count, len(services)
     )
     return services
+
+
+def get_port_pids() -> dict[int, int]:
+    """Return {port: pid} for all listening TCP ports via ``ss -tlnp``.
+
+    Runs ``ss -tlnp`` once and parses the output.  Called once per request
+    and shared across all service lookups.
+
+    Returns an empty dict on any subprocess failure.
+    """
+    try:
+        result = subprocess.run(
+            ["ss", "-tlnp"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as e:
+        logger.warning("ss command error in get_port_pids: %s", e)
+        return {}
+
+    if result.returncode != 0:
+        logger.warning("ss command failed (returncode=%d)", result.returncode)
+        return {}
+
+    port_pids: dict[int, int] = {}
+    for line in result.stdout.splitlines():
+        if "LISTEN" not in line:
+            continue
+        port_match = re.search(r":(\d+)\s", line)
+        proc_match = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+        if port_match and proc_match:
+            port_pids[int(port_match.group(1))] = int(proc_match.group(2))
+
+    return port_pids
+
+
+def get_systemd_unit(pid: int, proc_root: Path | None = None) -> str | None:
+    """Return the systemd unit name for *pid*, or ``None``.
+
+    Reads ``/proc/<pid>/cgroup`` and extracts the service name::
+
+        0::/system.slice/muxplex.service  →  "muxplex.service"
+
+    Returns ``None`` for processes not running under a systemd ``.service``
+    unit, or when the cgroup file cannot be read.
+
+    Args:
+        pid: Process ID to look up.
+        proc_root: Override for ``/proc`` (used in tests).
+    """
+    root = proc_root or Path("/proc")
+    cgroup_path = root / str(pid) / "cgroup"
+    try:
+        content = cgroup_path.read_text()
+    except (FileNotFoundError, PermissionError):
+        return None
+
+    for line in content.splitlines():
+        # Format: hierarchy-ID:controller-list:cgroup-path
+        # e.g. "0::/system.slice/muxplex.service"
+        parts = line.strip().split(":")
+        if len(parts) >= 3:
+            cgroup = parts[2]
+            # Extract the last path component if it ends with .service
+            basename = cgroup.rsplit("/", 1)[-1]
+            if basename.endswith(".service"):
+                return basename
+
+    return None
