@@ -6,6 +6,7 @@ import pam
 from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
 from fastapi import Request, HTTPException
 from frontdoor.config import settings
+from frontdoor.tokens import validate_token
 
 
 logger = logging.getLogger(__name__)
@@ -69,3 +70,54 @@ async def require_auth(request: Request) -> str:
             detail={"error": "Session expired or invalid", "code": "UNAUTHORIZED"},
         )
     return username
+
+
+async def require_admin_auth(request: Request) -> str:
+    """FastAPI dependency — authenticate for admin endpoints.
+
+    Checks three tiers in order (first match wins):
+
+    1. Localhost bypass (``request.client.host == "127.0.0.1"``).
+       Uses the actual TCP connection host, not X-Forwarded-For.
+    2. API token (``Authorization: Bearer ft_...``)
+    3. PAM session cookie (existing ``frontdoor_session``)
+
+    Returns:
+        The authenticated identity string:
+        - ``"localhost"`` for tier 1
+        - ``"token:<name>"`` for tier 2
+        - ``"<username>"`` for tier 3
+
+    Raises:
+        HTTPException: HTTP 401 if all tiers fail.
+    """
+    # Tier 1: Localhost bypass
+    client_host = request.client.host if request.client else None
+    if client_host == "127.0.0.1" and settings.allow_localhost_admin:
+        logger.debug("Admin auth: localhost bypass")
+        return "localhost"
+
+    # Tier 2: API token
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        raw_token = auth_header[7:]
+        token_name = validate_token(raw_token, tokens_file=settings.tokens_file)
+        if token_name:
+            logger.debug("Admin auth: token %s", token_name)
+            return f"token:{token_name}"
+
+    # Tier 3: PAM session cookie
+    session_cookie = request.cookies.get("frontdoor_session")
+    if session_cookie:
+        username = validate_session_token(
+            session_cookie, settings.secret_key, settings.session_timeout
+        )
+        if username:
+            logger.debug("Admin auth: session cookie user=%s", username)
+            return username
+
+    logger.warning("Admin auth: all tiers failed from %s", client_host)
+    raise HTTPException(
+        status_code=401,
+        detail={"error": "Admin authentication required", "code": "UNAUTHORIZED"},
+    )
