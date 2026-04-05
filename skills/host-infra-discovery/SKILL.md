@@ -111,17 +111,34 @@ ls /etc/caddy/conf.d/ 2>/dev/null || echo "NO_CONFD"
 | grep returns `0` | Append `import /etc/caddy/conf.d/*.caddy` to Caddyfile |
 | `NO_CONFD` | `mkdir -p /etc/caddy/conf.d` |
 
-### 4. Port inventory — what's already allocated
+### 4. Port inventory
+
+**Preferred method (when frontdoor is installed):**
+
+```bash
+# Check if frontdoor is installed
+systemctl is-active frontdoor 2>/dev/null && echo "FRONTDOOR_ACTIVE" || echo "FRONTDOOR_ABSENT"
+
+# If active: use frontdoor-admin for authoritative port allocation
+frontdoor-admin ports next --json
+# → {"internal_port": 8450, "external_port": 8451}
+
+# For full visibility of what's taken:
+frontdoor-admin ports next --show-used
+```
+
+**Fallback / reality check (always run for verification):**
 
 ```bash
 cat /etc/app-ports.conf 2>/dev/null || echo "NO_REGISTRY"
 # Linux
 ss -tlnp | awk '/127\.0\.0\.1/{print $4, $6}' | sort
-# macOS
-netstat -an | awk '/tcp.*127\.0\.0\.1.*LISTEN/{print $4}' | sort
 ```
 
-Read the registry for intent; the socket scan for reality. Any port in the output is taken. amplifierd is always `8410` — never reassign it.
+`frontdoor-admin ports next` checks Caddy configs (both external vhost ports and
+internal proxy targets), live `ss -tlnp` output, and the reserved ports registry.
+The raw `ss` scan is still useful as a reality check to catch processes that are
+listening but not Caddy-registered.
 
 ### 5. Existing app services
 
