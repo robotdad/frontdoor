@@ -1,7 +1,7 @@
 """Tests for frontdoor/app_registration.py — template rendering and registration."""
 
-import pytest
-from unittest.mock import patch, call
+import frontdoor.config as config_module
+from unittest.mock import patch
 
 
 class TestRenderCaddyConfig:
@@ -21,7 +21,10 @@ class TestRenderCaddyConfig:
         )
 
         assert "ambrose.tail09557f.ts.net:8451" in result
-        assert "tls /etc/ssl/tailscale/ambrose.crt /etc/ssl/tailscale/ambrose.key" in result
+        assert (
+            "tls /etc/ssl/tailscale/ambrose.crt /etc/ssl/tailscale/ambrose.key"
+            in result
+        )
         assert "forward_auth localhost:8420" in result
         assert "reverse_proxy localhost:8450" in result
         assert "/api/auth/validate" in result
@@ -99,3 +102,105 @@ class TestRenderServiceUnit:
         )
 
         assert "KillMode=process" in result
+
+
+class TestRegisterApp:
+    def test_register_calls_privileged_operations(self, tmp_path):
+        """register_app calls run_privileged for caddy, service, and systemctl."""
+        from frontdoor.app_registration import register_app
+
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = tmp_path / "manifests"
+        try:
+            with (
+                patch(
+                    "frontdoor.app_registration.detect_fqdn",
+                    return_value="ambrose.ts.net",
+                ),
+                patch(
+                    "frontdoor.app_registration.detect_cert_paths",
+                    return_value=("/etc/ssl/ts/ambrose.crt", "/etc/ssl/ts/ambrose.key"),
+                ),
+                patch("frontdoor.app_registration.run_privileged") as mock_priv,
+            ):
+                result = register_app(
+                    slug="myapp",
+                    name="My App",
+                    description="Test app",
+                    icon="rocket",
+                    internal_port=8450,
+                    external_port=8451,
+                    exec_start="/opt/myapp/run",
+                    service_user="robotdad",
+                )
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+        assert result["slug"] == "myapp"
+        assert result["internal_port"] == 8450
+
+        call_ops = [c.args[0] for c in mock_priv.call_args_list]
+        assert "write-caddy" in call_ops
+        assert "write-service" in call_ops
+        assert "caddy-reload" in call_ops
+        assert "systemctl" in call_ops
+
+    def test_register_writes_manifest(self, tmp_path):
+        """register_app writes a manifest file to the manifest directory."""
+        from frontdoor.app_registration import register_app
+        import json
+
+        manifest_dir = tmp_path / "manifests"
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+        try:
+            with (
+                patch(
+                    "frontdoor.app_registration.detect_fqdn", return_value="test.local"
+                ),
+                patch(
+                    "frontdoor.app_registration.detect_cert_paths",
+                    return_value=(None, None),
+                ),
+                patch("frontdoor.app_registration.run_privileged"),
+            ):
+                register_app(
+                    slug="testapp",
+                    name="Test App",
+                    description="Testing",
+                    icon="flask",
+                    internal_port=9000,
+                    external_port=9001,
+                    exec_start="/usr/bin/testapp",
+                    service_user="testuser",
+                )
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+        manifest_path = manifest_dir / "testapp.json"
+        assert manifest_path.exists()
+        data = json.loads(manifest_path.read_text())
+        assert data["name"] == "Test App"
+
+
+class TestUnregisterApp:
+    def test_unregister_calls_stop_disable_delete(self, tmp_path):
+        """unregister_app stops, disables, and removes all config files."""
+        from frontdoor.app_registration import unregister_app
+
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        (manifest_dir / "myapp.json").write_text('{"name": "My App"}')
+
+        orig_manifest_dir = config_module.settings.manifest_dir
+        config_module.settings.manifest_dir = manifest_dir
+        try:
+            with patch("frontdoor.app_registration.run_privileged") as mock_priv:
+                unregister_app("myapp")
+        finally:
+            config_module.settings.manifest_dir = orig_manifest_dir
+
+        call_ops = [c.args[0] for c in mock_priv.call_args_list]
+        assert "delete-caddy" in call_ops
+        assert "delete-service" in call_ops
+        assert not (manifest_dir / "myapp.json").exists()
