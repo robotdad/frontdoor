@@ -122,203 +122,74 @@ usermod -aG shadow <SERVICE_USER>
 
 ---
 
-## Phase 2 — Per-App (Always Run These)
+## Phase 2 — Per-App Provisioning (via frontdoor-admin)
 
-Replace `<APPNAME>` with a short lowercase slug (e.g. `filebrowser`, `myapp`).
+`frontdoor-admin` is installed alongside frontdoor and handles all app provisioning
+steps. Requires frontdoor to be active (`systemctl is-active frontdoor`).
 
-### 2a. Generate secret key
-
-```bash
-# Linux
-INSTALL_DIR="/opt/<APPNAME>"
-SECRET_PATH="$INSTALL_DIR/.secret_key"
-
-# macOS
-INSTALL_DIR="$HOME/.config/<APPNAME>"
-SECRET_PATH="$INSTALL_DIR/secret_key"
-
-mkdir -p "$INSTALL_DIR"
-python3 -c "import secrets; print(secrets.token_hex(32))" > "$SECRET_PATH"
-chmod 600 "$SECRET_PATH"
-SECRET=$(cat "$SECRET_PATH")
-```
-
-### 2b. Allocate ports
-
-Two separate ports are required:
-
-- **`$INTERNAL_PORT`** — what the app process binds to (`127.0.0.1:INTERNAL_PORT`)
-- **`$EXTERNAL_PORT`** — what Caddy's vhost listens on (all interfaces, `:EXTERNAL_PORT`)
-
-They **must** be different. Caddy binds `0.0.0.0:EXTERNAL_PORT`; if it matches the app's
-port, the bind fails with `address already in use`.
-
-Check all three sources before picking either port:
+### Step 1: Allocate ports
 
 ```bash
-cat /etc/app-ports.conf                               # registry: claimed ports
-ss -tlnp | awk '/127\.0\.0\.1/{print $4}' | sort      # live sockets: app internal ports
-grep -r 'ts.net:' /etc/caddy/conf.d/                  # Caddy snippets: claimed external ports
+PORTS=$(frontdoor-admin ports next --json)
+INTERNAL=$(echo $PORTS | jq .internal_port)
+EXTERNAL=$(echo $PORTS | jq .external_port)
+echo "Internal: $INTERNAL  External: $EXTERNAL"
 ```
+
+### Step 2a: Register a custom app
+
+One command writes the Caddy config, systemd unit, and manifest, then enables
+and starts the service:
 
 ```bash
-INTERNAL_PORT=$(python3 -c "
-import socket, configparser
-
-cfg = configparser.ConfigParser()
-cfg.read('/etc/app-ports.conf')
-used = {int(cfg[s]['internal']) for s in cfg.sections() if 'internal' in cfg[s]}
-
-for p in range(8444, 8999):
-    if p in used:
-        continue
-    try:
-        s = socket.socket(); s.bind(('127.0.0.1', p)); s.close(); print(p); break
-    except OSError:
-        pass
-")
-
-# Pick EXTERNAL_PORT: a different free port — check conf.d to avoid Caddy collisions
-# EXTERNAL_PORT=<pick manually from the grep output above>
-
-cat >> /etc/app-ports.conf <<EOF
-
-[<APPNAME>]
-internal=$INTERNAL_PORT
-external=$EXTERNAL_PORT
-EOF
-echo "Internal: $INTERNAL_PORT  External: $EXTERNAL_PORT"
+frontdoor-admin app register SLUG \
+  --name "App Display Name" \
+  --internal-port $INTERNAL \
+  --external-port $EXTERNAL \
+  --exec-start "/path/to/start/command" \
+  --service-user USER \
+  [--description "One-line description"] \
+  [--icon "emoji-or-phosphor-icon"] \
+  [--kill-mode process]       # for apps managing child processes (tmux, workers)
+  [--ws-path "/ws*"]          # for apps with WebSocket endpoints (repeatable)
 ```
 
-### 2c. Write Caddy snippet
+`--kill-mode process` — adds `KillMode=process` to the systemd unit. Use for apps
+that manage long-lived child processes (tmux sessions, background workers) that
+must survive service restarts.
+
+`--ws-path` — adds a Caddy `handle` block that routes that path directly without
+`forward_auth` (Caddy 2.6 limitation for WebSocket connections). Can be specified
+multiple times.
+
+### Step 2b: Install a pre-built known-app configuration
+
+For apps with pre-validated configs in frontdoor's `known-apps/` directory:
 
 ```bash
-# FQDN detection: Tailscale preferred, hostname -f as fallback
-FQDN=$(tailscale status --json 2>/dev/null | \
-    python3 -c "import sys,json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" \
-    2>/dev/null) || FQDN=$(hostname -f)
+# Check what's available
+frontdoor-admin known-apps list
 
-# $CERT_PATH and $KEY_PATH were set in Phase 1 (TLS certs step).
-# If skipped (Option C / HTTP only), leave them unset and use the HTTP snippet below.
-
-# HTTPS (certs present — $CERT_PATH and $KEY_PATH set)
-# EXTERNAL_PORT: Caddy listens here (all interfaces)
-# INTERNAL_PORT: app listens here (127.0.0.1 only) — must differ from EXTERNAL_PORT
-cat > /etc/caddy/conf.d/<APPNAME>.caddy <<EOF
-$FQDN:$EXTERNAL_PORT {
-    tls $CERT_PATH $KEY_PATH
-    reverse_proxy localhost:$INTERNAL_PORT
-}
-EOF
-
-# HTTP fallback — use this block instead when no certs are available
-# $FQDN:$EXTERNAL_PORT {
-#     reverse_proxy localhost:$INTERNAL_PORT
-# }
-
-systemctl reload caddy   # Linux
-# brew services reload caddy   # macOS
+# Install
+frontdoor-admin known-apps install APPNAME --service-user USER
 ```
 
-### 2d. Write service unit
+Currently available: muxplex, filebrowser, amp-distro, dev-machine-monitor.
 
-Fill in `<APPNAME>`, `<SERVICE_USER>`, `<INSTALL_DIR>`, `<START_COMMAND>`, `<PORT>`, `<SECRET>`.  
-`SECURE_COOKIES` is `true` when TLS certs are present, `false` otherwise.  
-Cookie name in app code **must** be `<APPNAME>_session`.
-
-**Linux — systemd:**
-
-```ini
-# /etc/systemd/system/<APPNAME>.service
-[Unit]
-Description=<App Display Name>
-After=network.target tailscaled.service
-Wants=tailscaled.service
-# NOTE — KillMode: systemd's default (control-group) kills the entire process group
-# on stop/restart, including any child processes the app has spawned. For most apps
-# this is correct. If the app manages long-lived children you want to survive restarts
-# (e.g. tmux sessions, background workers, spawned servers), add:
-#   KillMode=process
-# This tells systemd to only kill the main process, leaving children alive.
-
-[Service]
-Type=simple
-User=<SERVICE_USER>
-WorkingDirectory=<INSTALL_DIR>
-ExecStart=<START_COMMAND> --host 127.0.0.1 --port <PORT>
-Restart=always
-RestartSec=5
-Environment=<APPNAME_UPPER>_SECRET_KEY=<SECRET>
-Environment=<APPNAME_UPPER>_SECURE_COOKIES=<true|false>
-
-[Install]
-WantedBy=multi-user.target
-```
+### Step 3: Verify
 
 ```bash
-systemctl daemon-reload && systemctl enable --now <APPNAME>
+frontdoor-admin services list
 ```
 
-**macOS — launchd:**
+The service should appear with `"status": "up"` and a `systemd_unit` field.
 
-```xml
-<!-- ~/Library/LaunchAgents/com.user.<APPNAME>.plist -->
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-    <key>Label</key>
-    <string>com.user.<APPNAME></string>
-    <key>ProgramArguments</key>
-    <array>
-        <string><INSTALL_DIR>/.venv/bin/uvicorn</string>
-        <string><module>:app</string>
-        <string>--host</string><string>127.0.0.1</string>
-        <string>--port</string><string><PORT></string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key><APPNAME_UPPER>_SECRET_KEY</key><string><SECRET></string>
-        <key><APPNAME_UPPER>_SECURE_COOKIES</key><string>true</string>
-    </dict>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>/tmp/<APPNAME>.log</string>
-    <key>StandardErrorPath</key><string>/tmp/<APPNAME>.error.log</string>
-</dict></plist>
-```
+---
 
-```bash
-launchctl load ~/Library/LaunchAgents/com.user.<APPNAME>.plist
-```
-
-### 2e. Auth — Tailscale identity middleware *(preferred over PAM; works on both platforms)*
-
-On Linux, PAM (`python-pam`) is available but the Tailscale identity approach is simpler, cross-platform, and stronger — device-level identity rather than a password. Use PAM only if the app already has it wired and you're not touching auth.
-
-For new apps, use the local Tailscale API in a FastAPI dependency:
-
-```python
-import httpx
-from fastapi import Request, HTTPException
-
-async def require_tailscale_identity(request: Request) -> str:
-    client_ip = request.client.host
-    transport = httpx.AsyncHTTPTransport(
-        uds="/var/run/tailscale/tailscaled.sock"
-    )
-    async with httpx.AsyncClient(transport=transport) as client:
-        r = await client.get(
-            f"http://local-tailscaled.sock/localapi/v0/whois?addr={client_ip}:0"
-        )
-    if r.status_code != 200:
-        raise HTTPException(status_code=401)
-    node = r.json().get("Node", {})
-    # Optionally: assert node["User"]["LoginName"] == "your@email"
-    return node.get("Name", client_ip)
-```
-
-This replaces the PAM login form. On first visit, Caddy (or any connecting Tailscale device) is already authenticated at the network layer — the whois call just surfaces that identity for the session cookie. Issue the `itsdangerous` cookie on success exactly as the PAM path does.
+**Note on Phase 3:** When frontdoor is deployed and `frontdoor-admin app register`
+is used for provisioning, Phases 3a–3f from the original skill are automatically
+handled by the CLI. The Caddy config includes `forward_auth`, the manifest is
+written, and auth is managed by frontdoor. No manual Phase 3 steps required.
 
 ---
 
@@ -352,7 +223,18 @@ Never allocate ports from these ranges — they are claimed by frontdoor and its
 | 9090–9100 | Prometheus / monitoring |
 | Databases | All standard DB ports |
 
-New apps always go in the **8440+** range. Use these commands to find a free port:
+New apps always go in the **8440+** range.
+
+**When frontdoor is installed**, use `frontdoor-admin ports next` for port
+allocation instead of manual scanning — it checks Caddy configs, live sockets,
+and the reserved ports registry in one call:
+
+```bash
+frontdoor-admin ports next --json
+# → {"internal_port": 8450, "external_port": 8451}
+```
+
+**Fallback** (when frontdoor is not installed):
 
 ```bash
 # Scan the registry for claimed ports
