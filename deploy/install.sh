@@ -63,6 +63,21 @@ else
     echo "  $USER already in shadow group"
 fi
 
+# --- Ensure sudoers access for frontdoor-priv ---
+echo "Setting up sudoers for frontdoor-priv..."
+SUDOERS_FILE="/etc/sudoers.d/frontdoor-priv"
+PRIV_SCRIPT="$INSTALL_DIR/frontdoor/bin/frontdoor-priv"
+if [ ! -f "$SUDOERS_FILE" ] || ! grep -q "frontdoor-priv" "$SUDOERS_FILE" 2>/dev/null; then
+    cat > "$SUDOERS_FILE" <<EOF
+# Allow frontdoor service user to run privileged operations
+$USER ALL=(root) NOPASSWD: $PRIV_SCRIPT
+EOF
+    chmod 440 "$SUDOERS_FILE"
+    echo "  Created $SUDOERS_FILE"
+else
+    echo "  Sudoers entry already exists"
+fi
+
 # --- Install application ---
 echo "Installing application to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
@@ -74,6 +89,9 @@ echo "Setting up Python environment..."
 python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install --quiet "$INSTALL_DIR"
+
+# Ensure frontdoor-priv is executable
+chmod +x "$INSTALL_DIR/frontdoor/bin/frontdoor-priv" 2>/dev/null || true
 
 # --- Install Caddy ---
 # Install before the Tailscale cert section: the cert key requires root:caddy
