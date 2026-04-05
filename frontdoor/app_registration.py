@@ -34,9 +34,7 @@ def detect_fqdn() -> str:
             timeout=5,
         )
         if result.returncode == 0:
-            import json as json_mod
-
-            data = json_mod.loads(result.stdout)
+            data = json.loads(result.stdout)
             dns_name = data.get("Self", {}).get("DNSName", "")
             if dns_name:
                 return dns_name.rstrip(".")
@@ -117,6 +115,7 @@ def render_caddy_config(
     # WebSocket bypass handles (before the main handle)
     if websocket_paths:
         for ws_path in websocket_paths:
+            ws_path = ws_path.strip()
             lines.append(f"    handle {ws_path} {{")
             lines.append(f"        reverse_proxy localhost:{internal_port} {{")
             lines.append("            header_up -X-Forwarded-For")
@@ -163,6 +162,10 @@ def render_service_unit(
         kill_mode: If set (e.g. ``"process"``), adds ``KillMode=`` directive.
         description: Human-readable description for the unit.
     """
+    exec_start = exec_start.replace("\n", " ").replace("\r", "")
+    service_user = service_user.strip()
+    description = description.replace("\n", " ").replace("\r", "")
+
     lines = [
         "[Unit]",
         f"Description={description}",
@@ -178,11 +181,13 @@ def render_service_unit(
     ]
     if kill_mode:
         lines.append(f"KillMode={kill_mode}")
-    lines.extend([
-        "",
-        "[Install]",
-        "WantedBy=multi-user.target",
-    ])
+    lines.extend(
+        [
+            "",
+            "[Install]",
+            "WantedBy=multi-user.target",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -266,7 +271,7 @@ def register_app(
         "manifest": str(manifest_dir / f"{slug}.json"),
         "internal_port": internal_port,
         "external_port": external_port,
-        "service_status": "active",
+        "service_status": "start_requested",
     }
 
 
